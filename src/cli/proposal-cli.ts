@@ -6,6 +6,7 @@ import { loadConfig } from "../config/config.js";
 import { compileProposal } from "../proposal/compiler.js";
 import { executeProposalPlan } from "../proposal/execute.js";
 import { renderNeedsConfirmMd } from "../proposal/render.js";
+import { acceptProposalResults } from "../proposal/results/index.js";
 import { runProposalPlanSafeNodes } from "../proposal/run.js";
 import { CompileReportSchema, DiscoveryModeSchema } from "../proposal/schema.js";
 import { validatePlanDir } from "../proposal/validate.js";
@@ -61,6 +62,11 @@ type ProposalExecuteOpts = {
   invokeTimeoutMs?: string;
   node?: string;
   nodeApprove?: string;
+};
+
+type ProposalAcceptOpts = {
+  baseline?: string;
+  json?: boolean;
 };
 
 export function registerProposalCli(program: Command) {
@@ -386,6 +392,70 @@ export function registerProposalCli(program: Command) {
         if (!res.ok) {
           defaultRuntime.exit(1);
         }
+      });
+    });
+
+  proposal
+    .command("accept")
+    .description("Evaluate acceptance checks and archive experiment artifacts for a plan package")
+    .argument("<planDir>", "Plan package directory (experiments/workdir/<planId>)")
+    .option(
+      "--baseline <path>",
+      "Baseline metrics JSON file for comparison (defaults to latest run snapshot if available)",
+    )
+    .option("--json", "Output JSON", false)
+    .action(async (planDir: string, opts: ProposalAcceptOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const rootDir = path.resolve(planDir);
+        const baselinePath = opts.baseline?.trim()
+          ? resolveUserPath(opts.baseline.trim())
+          : undefined;
+
+        const res = await acceptProposalResults({ planDir: rootDir, baselinePath });
+
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify(res, null, 2));
+          defaultRuntime.exit(res.exitCode);
+          return;
+        }
+
+        defaultRuntime.log(
+          `${theme.heading("Proposal accept")} ${
+            res.status === "pass"
+              ? theme.success("✓")
+              : res.status === "needs_confirm"
+                ? theme.warn("!")
+                : theme.error("✗")
+          }`,
+        );
+        if (res.planId) {
+          defaultRuntime.log(`${theme.muted("Plan:")} ${theme.command(res.planId)}`);
+        }
+        defaultRuntime.log(`${theme.muted("Dir:")} ${theme.command(shortenHomePath(res.planDir))}`);
+        defaultRuntime.log(
+          `${theme.muted("Checks:")} pass=${res.summary.pass} fail=${res.summary.fail} needs_confirm=${res.summary.needs_confirm}`,
+        );
+        if (res.metrics?.baselinePath) {
+          defaultRuntime.log(
+            `${theme.muted("Baseline:")} ${theme.command(shortenHomePath(res.metrics.baselinePath))}`,
+          );
+        }
+        defaultRuntime.log(`${theme.muted("Run:")} ${theme.command(shortenHomePath(res.runDir))}`);
+        defaultRuntime.log(
+          `${theme.muted("Report:")} ${theme.command(shortenHomePath(res.paths.reportJson))}`,
+        );
+        defaultRuntime.log(
+          `${theme.muted("Manifest:")} ${theme.command(shortenHomePath(res.paths.manifestJson))}`,
+        );
+
+        for (const warning of res.warnings) {
+          defaultRuntime.log(theme.warn(`- ${warning}`));
+        }
+        for (const error of res.errors) {
+          defaultRuntime.log(theme.error(`- ${error}`));
+        }
+
+        defaultRuntime.exit(res.exitCode);
       });
     });
 }
