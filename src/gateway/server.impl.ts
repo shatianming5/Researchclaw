@@ -44,6 +44,7 @@ import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js
 import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
+import { GpuScheduler } from "./gpu-scheduler/scheduler.js";
 import { NodeRegistry } from "./node-registry.js";
 import { createChannelManager } from "./server-channels.js";
 import { createAgentEventHandler } from "./server-chat.js";
@@ -353,6 +354,14 @@ export async function startGatewayServer(
   });
   let bonjourStop: (() => Promise<void>) | null = null;
   const nodeRegistry = new NodeRegistry();
+  const gpuScheduler = new GpuScheduler({
+    nodeRegistry,
+    loadConfig,
+    log,
+  });
+  void gpuScheduler.start().catch((err) => {
+    log.warn(`gpu scheduler failed to start: ${String(err)}`);
+  });
   const nodePresenceTimers = new Map<string, ReturnType<typeof setInterval>>();
   const nodeSubscriptions = createNodeSubscriptionManager();
   const nodeSendEvent = (opts: { nodeId: string; event: string; payloadJSON?: string | null }) => {
@@ -507,6 +516,7 @@ export async function startGatewayServer(
       nodeUnsubscribeAll,
       hasConnectedMobileNode: hasMobileNodeConnected,
       nodeRegistry,
+      gpuScheduler,
       agentRunSeq,
       chatAbortControllers,
       chatAbortedRuns: chatRunState.abortedRuns,
@@ -632,6 +642,7 @@ export async function startGatewayServer(
         skillsRefreshTimer = null;
       }
       skillsChangeUnsub();
+      gpuScheduler.stop();
       await close(opts);
     },
   };

@@ -90,7 +90,7 @@ vi.mock("@mariozechner/pi-ai", async () => {
   };
 });
 
-let runEmbeddedPiAgent: typeof import("./pi-embedded-runner.js").runEmbeddedPiAgent;
+const { runEmbeddedPiAgent } = await import("./pi-embedded-runner/run.js");
 let tempRoot: string | undefined;
 let agentDir: string;
 let workspaceDir: string;
@@ -98,7 +98,6 @@ let sessionCounter = 0;
 
 beforeAll(async () => {
   vi.useRealTimers();
-  ({ runEmbeddedPiAgent } = await import("./pi-embedded-runner.js"));
   tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-embedded-agent-"));
   agentDir = path.join(tempRoot, "agent");
   workspaceDir = path.join(tempRoot, "workspace");

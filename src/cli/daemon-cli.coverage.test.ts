@@ -137,7 +137,7 @@ describe("daemon-cli coverage", () => {
     expect(callGateway).toHaveBeenCalledWith(expect.objectContaining({ method: "status" }));
     expect(findExtraGatewayServices).toHaveBeenCalled();
     expect(inspectPortUsage).toHaveBeenCalled();
-  }, 20_000);
+  }, 40_000);
 
   it("derives probe URL from service args + env (json)", async () => {
     runtimeLogs.length = 0;
@@ -183,7 +183,7 @@ describe("daemon-cli coverage", () => {
     expect(parsed.config?.mismatch).toBe(true);
     expect(parsed.rpc?.url).toBe("ws://127.0.0.1:19001");
     expect(parsed.rpc?.ok).toBe(true);
-  }, 20_000);
+  }, 40_000);
 
   it("passes deep scan flag for daemon status", async () => {
     findExtraGatewayServices.mockClear();

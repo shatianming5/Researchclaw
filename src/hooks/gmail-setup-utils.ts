@@ -6,6 +6,7 @@ import { resolveUserPath } from "../utils.js";
 import { normalizeServePath } from "./gmail.js";
 
 let cachedPythonPath: string | null | undefined;
+let cachedPythonPathMissKey: string | undefined;
 const MAX_OUTPUT_CHARS = 800;
 
 function trimOutput(value: string): string {
@@ -116,8 +117,15 @@ function ensureGcloudOnPath(): boolean {
 }
 
 export async function resolvePythonExecutablePath(): Promise<string | undefined> {
-  if (cachedPythonPath !== undefined) {
-    return cachedPythonPath ?? undefined;
+  const currentKey = process.env.PATH ?? "";
+  if (typeof cachedPythonPath === "string") {
+    return cachedPythonPath;
+  }
+  if (cachedPythonPath === null) {
+    if (cachedPythonPathMissKey === currentKey) {
+      return undefined;
+    }
+    cachedPythonPath = undefined;
   }
   const candidates = findExecutablesOnPath(["python3", "python"]);
   for (const candidate of candidates) {
@@ -135,12 +143,14 @@ export async function resolvePythonExecutablePath(): Promise<string | undefined>
     try {
       fs.accessSync(resolved, fs.constants.X_OK);
       cachedPythonPath = resolved;
+      cachedPythonPathMissKey = undefined;
       return resolved;
     } catch {
       // keep scanning
     }
   }
   cachedPythonPath = null;
+  cachedPythonPathMissKey = currentKey;
   return undefined;
 }
 

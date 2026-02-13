@@ -54,6 +54,7 @@ export type GatewayClientOptions = {
   commands?: string[];
   permissions?: Record<string, boolean>;
   pathEnv?: string;
+  resources?: ConnectParams["resources"];
   deviceIdentity?: DeviceIdentity;
   minProtocol?: number;
   maxProtocol?: number;
@@ -241,6 +242,7 @@ export class GatewayClient {
           ? this.opts.permissions
           : undefined,
       pathEnv: this.opts.pathEnv,
+      resources: this.opts.resources,
       auth,
       role,
       scopes,

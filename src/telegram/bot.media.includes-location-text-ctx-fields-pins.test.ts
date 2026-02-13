@@ -93,15 +93,15 @@ vi.mock("../auto-reply/reply.js", () => {
   return { getReplyFromConfig: replySpy, __replySpy: replySpy };
 });
 
+const { createTelegramBot } = await import("./bot.js");
+const replyModule = await import("../auto-reply/reply.js");
+const replySpy = replyModule.__replySpy as unknown as ReturnType<typeof vi.fn>;
+
 describe("telegram inbound media", () => {
   const _INBOUND_MEDIA_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 20_000;
   it(
     "includes location text and ctx fields for pins",
     async () => {
-      const { createTelegramBot } = await import("./bot.js");
-      const replyModule = await import("../auto-reply/reply.js");
-      const replySpy = replyModule.__replySpy as unknown as ReturnType<typeof vi.fn>;
-
       onSpy.mockReset();
       replySpy.mockReset();
 
@@ -142,10 +142,6 @@ describe("telegram inbound media", () => {
   it(
     "captures venue fields for named places",
     async () => {
-      const { createTelegramBot } = await import("./bot.js");
-      const replyModule = await import("../auto-reply/reply.js");
-      const replySpy = replyModule.__replySpy as unknown as ReturnType<typeof vi.fn>;
-
       onSpy.mockReset();
       replySpy.mockReset();
 

@@ -83,6 +83,20 @@ import type {
   TickEventSchema,
 } from "./frames.js";
 import type {
+  GpuJobCancelParamsSchema,
+  GpuJobCancelResultSchema,
+  GpuJobGetParamsSchema,
+  GpuJobGetResultSchema,
+  GpuJobListParamsSchema,
+  GpuJobListResultSchema,
+  GpuJobSchema,
+  GpuJobStateSchema,
+  GpuJobSubmitParamsSchema,
+  GpuJobSubmitResultSchema,
+  GpuJobWaitParamsSchema,
+  GpuJobWaitResultSchema,
+} from "./gpu.js";
+import type {
   ChatAbortParamsSchema,
   ChatEventSchema,
   ChatInjectParamsSchema,
@@ -179,6 +193,18 @@ export type ChannelsStatusResult = Static<typeof ChannelsStatusResultSchema>;
 export type ChannelsLogoutParams = Static<typeof ChannelsLogoutParamsSchema>;
 export type WebLoginStartParams = Static<typeof WebLoginStartParamsSchema>;
 export type WebLoginWaitParams = Static<typeof WebLoginWaitParamsSchema>;
+export type GpuJobState = Static<typeof GpuJobStateSchema>;
+export type GpuJob = Static<typeof GpuJobSchema>;
+export type GpuJobSubmitParams = Static<typeof GpuJobSubmitParamsSchema>;
+export type GpuJobSubmitResult = Static<typeof GpuJobSubmitResultSchema>;
+export type GpuJobGetParams = Static<typeof GpuJobGetParamsSchema>;
+export type GpuJobGetResult = Static<typeof GpuJobGetResultSchema>;
+export type GpuJobListParams = Static<typeof GpuJobListParamsSchema>;
+export type GpuJobListResult = Static<typeof GpuJobListResultSchema>;
+export type GpuJobCancelParams = Static<typeof GpuJobCancelParamsSchema>;
+export type GpuJobCancelResult = Static<typeof GpuJobCancelResultSchema>;
+export type GpuJobWaitParams = Static<typeof GpuJobWaitParamsSchema>;
+export type GpuJobWaitResult = Static<typeof GpuJobWaitResultSchema>;
 export type AgentSummary = Static<typeof AgentSummarySchema>;
 export type AgentsFileEntry = Static<typeof AgentsFileEntrySchema>;
 export type AgentsFilesListParams = Static<typeof AgentsFilesListParamsSchema>;

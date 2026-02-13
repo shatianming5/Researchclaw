@@ -40,6 +40,8 @@ vi.mock("../config/sessions.js", async (importOriginal) => {
   };
 });
 
+const { createDiscordMessageHandler } = await import("./monitor.js");
+
 beforeEach(() => {
   vi.useRealTimers();
   sendMock.mockReset().mockResolvedValue(undefined);
@@ -59,7 +61,6 @@ describe("discord tool result dispatch", () => {
   it(
     "accepts guild messages when mentionPatterns match",
     async () => {
-      const { createDiscordMessageHandler } = await import("./monitor.js");
       const cfg = {
         agents: {
           defaults: {
@@ -143,7 +144,6 @@ describe("discord tool result dispatch", () => {
   it(
     "accepts guild messages when mentionPatterns match even if another user is mentioned",
     async () => {
-      const { createDiscordMessageHandler } = await import("./monitor.js");
       const cfg = {
         agents: {
           defaults: {
@@ -225,7 +225,6 @@ describe("discord tool result dispatch", () => {
   );
 
   it("accepts guild reply-to-bot messages as implicit mentions", async () => {
-    const { createDiscordMessageHandler } = await import("./monitor.js");
     const cfg = {
       agents: {
         defaults: {
@@ -325,7 +324,6 @@ describe("discord tool result dispatch", () => {
   });
 
   it("forks thread sessions and injects starter context", async () => {
-    const { createDiscordMessageHandler } = await import("./monitor.js");
     let capturedCtx:
       | {
           SessionKey?: string;
@@ -439,7 +437,6 @@ describe("discord tool result dispatch", () => {
   });
 
   it("skips thread starter context when disabled", async () => {
-    const { createDiscordMessageHandler } = await import("./monitor.js");
     let capturedCtx:
       | {
           ThreadStarterBody?: string;
@@ -548,7 +545,6 @@ describe("discord tool result dispatch", () => {
   });
 
   it("treats forum threads as distinct sessions without channel payloads", async () => {
-    const { createDiscordMessageHandler } = await import("./monitor.js");
     let capturedCtx:
       | {
           SessionKey?: string;
@@ -653,8 +649,6 @@ describe("discord tool result dispatch", () => {
   });
 
   it("scopes thread sessions to the routed agent", async () => {
-    const { createDiscordMessageHandler } = await import("./monitor.js");
-
     let capturedCtx:
       | {
           SessionKey?: string;

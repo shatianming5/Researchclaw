@@ -112,13 +112,14 @@ vi.mock("../commands/gateway-status.js", () => ({
   gatewayStatusCommand: (opts: unknown) => gatewayStatusCommand(opts),
 }));
 
+const { registerGatewayCli } = await import("./gateway-cli.js");
+
 describe("gateway-cli coverage", () => {
   it("registers call/health commands and routes to callGateway", async () => {
     runtimeLogs.length = 0;
     runtimeErrors.length = 0;
     callGateway.mockClear();
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -136,7 +137,6 @@ describe("gateway-cli coverage", () => {
     runtimeErrors.length = 0;
     gatewayStatusCommand.mockClear();
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -163,7 +163,6 @@ describe("gateway-cli coverage", () => {
       },
     ]);
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -195,7 +194,6 @@ describe("gateway-cli coverage", () => {
       },
     ]);
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -218,7 +216,6 @@ describe("gateway-cli coverage", () => {
     runtimeErrors.length = 0;
     discoverGatewayBeacons.mockReset();
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -238,7 +235,6 @@ describe("gateway-cli coverage", () => {
     runtimeErrors.length = 0;
     callGateway.mockClear();
 
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);
@@ -254,8 +250,6 @@ describe("gateway-cli coverage", () => {
   it("validates gateway ports and handles force/start errors", async () => {
     runtimeLogs.length = 0;
     runtimeErrors.length = 0;
-
-    const { registerGatewayCli } = await import("./gateway-cli.js");
 
     // Invalid port
     const programInvalidPort = new Command();
@@ -317,8 +311,6 @@ describe("gateway-cli coverage", () => {
     startGatewayServer.mockRejectedValueOnce(
       new GatewayLockError("another gateway instance is already listening"),
     );
-
-    const { registerGatewayCli } = await import("./gateway-cli.js");
     const program = new Command();
     program.exitOverride();
     registerGatewayCli(program);

@@ -30,6 +30,9 @@ vi.mock("../auto-reply/dispatch.js", async (importOriginal) => {
   };
 });
 
+const { ChannelType } = await import("@buape/carbon");
+const { createDiscordNativeCommand } = await import("./monitor.js");
+
 beforeEach(() => {
   dispatchMock.mockReset().mockImplementation(async (params) => {
     if ("dispatcher" in params && params.dispatcher) {
@@ -50,10 +53,7 @@ beforeEach(() => {
 });
 
 describe("discord native commands", () => {
-  it("skips tool results for native slash commands", { timeout: 60_000 }, async () => {
-    const { ChannelType } = await import("@buape/carbon");
-    const { createDiscordNativeCommand } = await import("./monitor.js");
-
+  it("skips tool results for native slash commands", async () => {
     const cfg = {
       agents: {
         defaults: {

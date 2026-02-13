@@ -81,6 +81,12 @@ const BASE_METHODS = [
   "agent.identity.get",
   "agent.wait",
   "browser.request",
+  "proposal.compile",
+  "gpu.job.submit",
+  "gpu.job.get",
+  "gpu.job.list",
+  "gpu.job.cancel",
+  "gpu.job.wait",
   // WebChat WebSocket-native chat methods
   "chat.history",
   "chat.abort",

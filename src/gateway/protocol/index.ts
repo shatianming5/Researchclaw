@@ -106,6 +106,26 @@ import {
   errorShape,
   type GatewayFrame,
   GatewayFrameSchema,
+  type GpuJob,
+  type GpuJobCancelParams,
+  GpuJobCancelParamsSchema,
+  GpuJobCancelResultSchema,
+  type GpuJobGetParams,
+  GpuJobGetParamsSchema,
+  GpuJobGetResultSchema,
+  type GpuJobListParams,
+  GpuJobListParamsSchema,
+  GpuJobListResultSchema,
+  GpuJobSchema,
+  type GpuJobState,
+  GpuJobStateSchema,
+  type GpuJobSubmitParams,
+  GpuJobSubmitParamsSchema,
+  type GpuJobSubmitResult,
+  GpuJobSubmitResultSchema,
+  type GpuJobWaitParams,
+  GpuJobWaitParamsSchema,
+  GpuJobWaitResultSchema,
   type HelloOk,
   HelloOkSchema,
   type LogsTailParams,
@@ -347,6 +367,11 @@ export const validateUpdateRunParams = ajv.compile<UpdateRunParams>(UpdateRunPar
 export const validateWebLoginStartParams =
   ajv.compile<WebLoginStartParams>(WebLoginStartParamsSchema);
 export const validateWebLoginWaitParams = ajv.compile<WebLoginWaitParams>(WebLoginWaitParamsSchema);
+export const validateGpuJobSubmitParams = ajv.compile<GpuJobSubmitParams>(GpuJobSubmitParamsSchema);
+export const validateGpuJobGetParams = ajv.compile<GpuJobGetParams>(GpuJobGetParamsSchema);
+export const validateGpuJobListParams = ajv.compile<GpuJobListParams>(GpuJobListParamsSchema);
+export const validateGpuJobCancelParams = ajv.compile<GpuJobCancelParams>(GpuJobCancelParamsSchema);
+export const validateGpuJobWaitParams = ajv.compile<GpuJobWaitParams>(GpuJobWaitParamsSchema);
 
 export function formatValidationErrors(errors: ErrorObject[] | null | undefined) {
   if (!errors?.length) {
@@ -436,6 +461,18 @@ export {
   ChannelsLogoutParamsSchema,
   WebLoginStartParamsSchema,
   WebLoginWaitParamsSchema,
+  GpuJobStateSchema,
+  GpuJobSchema,
+  GpuJobSubmitParamsSchema,
+  GpuJobSubmitResultSchema,
+  GpuJobGetParamsSchema,
+  GpuJobGetResultSchema,
+  GpuJobListParamsSchema,
+  GpuJobListResultSchema,
+  GpuJobCancelParamsSchema,
+  GpuJobCancelResultSchema,
+  GpuJobWaitParamsSchema,
+  GpuJobWaitResultSchema,
   AgentSummarySchema,
   AgentsFileEntrySchema,
   AgentsFilesListParamsSchema,
@@ -517,6 +554,14 @@ export type {
   ChannelsLogoutParams,
   WebLoginStartParams,
   WebLoginWaitParams,
+  GpuJobState,
+  GpuJob,
+  GpuJobSubmitParams,
+  GpuJobSubmitResult,
+  GpuJobGetParams,
+  GpuJobListParams,
+  GpuJobCancelParams,
+  GpuJobWaitParams,
   AgentSummary,
   AgentsFileEntry,
   AgentsFilesListParams,

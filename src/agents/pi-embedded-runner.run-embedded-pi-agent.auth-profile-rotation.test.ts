@@ -2,7 +2,7 @@ import type { AssistantMessage } from "@mariozechner/pi-ai";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import type { EmbeddedRunAttemptResult } from "./pi-embedded-runner/run/types.js";
 
@@ -12,11 +12,7 @@ vi.mock("./pi-embedded-runner/run/attempt.js", () => ({
   runEmbeddedAttempt: (params: unknown) => runEmbeddedAttemptMock(params),
 }));
 
-let runEmbeddedPiAgent: typeof import("./pi-embedded-runner.js").runEmbeddedPiAgent;
-
-beforeAll(async () => {
-  ({ runEmbeddedPiAgent } = await import("./pi-embedded-runner.js"));
-});
+const { runEmbeddedPiAgent } = await import("./pi-embedded-runner/run.js");
 
 beforeEach(() => {
   vi.useRealTimers();

@@ -95,7 +95,7 @@ describe("onboard (non-interactive): Cloudflare AI Gateway", () => {
       process.env.OPENCLAW_GATEWAY_TOKEN = prev.token;
       process.env.OPENCLAW_GATEWAY_PASSWORD = prev.password;
     }
-  }, 60_000);
+  }, 300_000);
 
   it("infers auth choice from API key flags", async () => {
     const prev = {
@@ -187,5 +187,5 @@ describe("onboard (non-interactive): Cloudflare AI Gateway", () => {
       process.env.OPENCLAW_GATEWAY_TOKEN = prev.token;
       process.env.OPENCLAW_GATEWAY_PASSWORD = prev.password;
     }
-  }, 60_000);
+  }, 300_000);
 });

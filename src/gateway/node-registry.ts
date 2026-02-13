@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { GatewayWsClient } from "./server/ws-types.js";
 
+export type NodeResources = {
+  gpuCount?: number;
+  gpuType?: string;
+  gpuMemGB?: number;
+  cpuCores?: number;
+  ramGB?: number;
+};
+
 export type NodeSession = {
   nodeId: string;
   connId: string;
@@ -17,6 +25,7 @@ export type NodeSession = {
   commands: string[];
   permissions?: Record<string, boolean>;
   pathEnv?: string;
+  resources?: NodeResources;
   connectedAtMs: number;
 };
 
@@ -40,6 +49,47 @@ export class NodeRegistry {
   private nodesByConn = new Map<string, string>();
   private pendingInvokes = new Map<string, PendingInvoke>();
 
+  private normalizeResources(raw: unknown): NodeResources | undefined {
+    if (!raw || typeof raw !== "object") {
+      return undefined;
+    }
+
+    const obj = raw as Record<string, unknown>;
+
+    const int0 = (value: unknown): number | undefined => {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return undefined;
+      }
+      return Number.isInteger(value) && value >= 0 ? value : undefined;
+    };
+
+    const numPos = (value: unknown): number | undefined => {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return undefined;
+      }
+      return value > 0 ? value : undefined;
+    };
+
+    const text = (value: unknown): string | undefined => {
+      if (typeof value !== "string") {
+        return undefined;
+      }
+      const trimmed = value.trim();
+      return trimmed ? trimmed : undefined;
+    };
+
+    const resources: NodeResources = {
+      gpuCount: int0(obj.gpuCount),
+      gpuType: text(obj.gpuType),
+      gpuMemGB: numPos(obj.gpuMemGB),
+      cpuCores: int0(obj.cpuCores),
+      ramGB: numPos(obj.ramGB),
+    };
+
+    const hasAny = Object.values(resources).some((value) => value !== undefined);
+    return hasAny ? resources : undefined;
+  }
+
   register(client: GatewayWsClient, opts: { remoteIp?: string | undefined }) {
     const connect = client.connect;
     const nodeId = connect.device?.id ?? connect.client.id;
@@ -55,6 +105,7 @@ export class NodeRegistry {
       typeof (connect as { pathEnv?: string }).pathEnv === "string"
         ? (connect as { pathEnv?: string }).pathEnv
         : undefined;
+    const resources = this.normalizeResources((connect as { resources?: unknown }).resources);
     const session: NodeSession = {
       nodeId,
       connId: client.connId,
@@ -71,6 +122,7 @@ export class NodeRegistry {
       commands,
       permissions,
       pathEnv,
+      resources,
       connectedAtMs: Date.now(),
     };
     this.nodesById.set(nodeId, session);

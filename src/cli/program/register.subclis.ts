@@ -81,6 +81,14 @@ const entries: SubCliEntry[] = [
     },
   },
   {
+    name: "proposal",
+    description: "Proposal compiler (DAG + acceptance + retries)",
+    register: async (program) => {
+      const mod = await import("../proposal-cli.js");
+      mod.registerProposalCli(program);
+    },
+  },
+  {
     name: "approvals",
     description: "Exec approvals",
     register: async (program) => {

@@ -1,0 +1,16 @@
+{
+  "name": "openclaw-orchestrator",
+  "version": "2026.2.4",
+  "description": "External orchestration service that calls OpenClaw Gateway APIs",
+  "bin": {
+    "openclaw-orchestrator": "./bin/openclaw-orchestrator.js"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./cli-entry": "./bin/openclaw-orchestrator.js"
+  },
+  "dependencies": {
+    "openclaw": "workspace:*"
+  }
+}

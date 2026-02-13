@@ -18,6 +18,12 @@ export default defineConfig([
     platform: "node",
   },
   {
+    entry: "src/gateway-call.ts",
+    env,
+    fixedExtension: false,
+    platform: "node",
+  },
+  {
     dts: true,
     entry: "src/plugin-sdk/index.ts",
     outDir: "dist/plugin-sdk",

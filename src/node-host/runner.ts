@@ -45,6 +45,7 @@ import { detectMime } from "../media/mime.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { VERSION } from "../version.js";
 import { ensureNodeHostConfig, saveNodeHostConfig, type NodeHostGatewayConfig } from "./config.js";
+import { detectNodeResources } from "./resources.js";
 
 type NodeHostRunOptions = {
   gatewayHost: string;
@@ -594,6 +595,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
   const pathEnv = ensureNodePathEnv();
   // eslint-disable-next-line no-console
   console.log(`node host PATH: ${pathEnv}`);
+  const resources = await detectNodeResources({ pathEnv });
 
   const client = new GatewayClient({
     url,
@@ -616,6 +618,7 @@ export async function runNodeHost(opts: NodeHostRunOptions): Promise<void> {
       ...(browserProxyEnabled ? ["browser.proxy"] : []),
     ],
     pathEnv,
+    resources,
     permissions: undefined,
     deviceIdentity: loadOrCreateDeviceIdentity(),
     tlsFingerprint: gateway.tlsFingerprint,

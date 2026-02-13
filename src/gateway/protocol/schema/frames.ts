@@ -38,6 +38,18 @@ export const ConnectParamsSchema = Type.Object(
     commands: Type.Optional(Type.Array(NonEmptyString)),
     permissions: Type.Optional(Type.Record(NonEmptyString, Type.Boolean())),
     pathEnv: Type.Optional(Type.String()),
+    resources: Type.Optional(
+      Type.Object(
+        {
+          gpuCount: Type.Optional(Type.Integer({ minimum: 0 })),
+          gpuType: Type.Optional(NonEmptyString),
+          gpuMemGB: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+          cpuCores: Type.Optional(Type.Integer({ minimum: 0 })),
+          ramGB: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
+        },
+        { additionalProperties: false },
+      ),
+    ),
     role: Type.Optional(NonEmptyString),
     scopes: Type.Optional(Type.Array(NonEmptyString)),
     device: Type.Optional(

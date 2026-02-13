@@ -760,11 +760,44 @@ async function runExecProcess(opts: {
         handleExit(event.exitCode ?? null, normalizedSignal);
       });
     } else if (child) {
+      let exitFallbackTimer: NodeJS.Timeout | null = null;
+      const clearExitFallbackTimer = () => {
+        if (!exitFallbackTimer) {
+          return;
+        }
+        clearTimeout(exitFallbackTimer);
+        exitFallbackTimer = null;
+      };
+      const scheduleExitFallback = (
+        code: number | null,
+        exitSignal: NodeJS.Signals | number | null,
+      ) => {
+        if (exitFallbackTimer || session.exited) {
+          return;
+        }
+        const streamsEnded =
+          Boolean(child.stdout.readableEnded) && Boolean(child.stderr.readableEnded);
+        const fallbackMs = streamsEnded ? 0 : 250;
+        exitFallbackTimer = setTimeout(() => {
+          exitFallbackTimer = null;
+          if (session.exited) {
+            return;
+          }
+          handleExit(code, exitSignal);
+        }, fallbackMs);
+      };
+
+      child.once("exit", (code, exitSignal) => {
+        scheduleExitFallback(code, exitSignal);
+      });
+
       child.once("close", (code, exitSignal) => {
+        clearExitFallbackTimer();
         handleExit(code, exitSignal);
       });
 
       child.once("error", (err) => {
+        clearExitFallbackTimer();
         if (timeoutTimer) {
           clearTimeout(timeoutTimer);
         }
@@ -785,6 +818,10 @@ async function runExecProcess(opts: {
           reason: message,
         });
       });
+
+      if (child.exitCode !== null || child.signalCode !== null) {
+        scheduleExitFallback(child.exitCode, child.signalCode);
+      }
     }
   });
 

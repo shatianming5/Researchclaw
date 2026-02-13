@@ -14,6 +14,8 @@ vi.mock("../commands/models.js", async () => {
   };
 });
 
+const { registerModelsCli } = await import("./models-cli.js");
+
 describe("models cli", () => {
   beforeEach(() => {
     githubCopilotLoginCommand.mockClear();
@@ -22,7 +24,6 @@ describe("models cli", () => {
 
   it("registers github-copilot login command", { timeout: 60_000 }, async () => {
     const { Command } = await import("commander");
-    const { registerModelsCli } = await import("./models-cli.js");
 
     const program = new Command();
     registerModelsCli(program);
@@ -49,7 +50,6 @@ describe("models cli", () => {
 
   it("passes --agent to models status", async () => {
     const { Command } = await import("commander");
-    const { registerModelsCli } = await import("./models-cli.js");
 
     const program = new Command();
     registerModelsCli(program);
@@ -64,7 +64,6 @@ describe("models cli", () => {
 
   it("passes parent --agent to models status", async () => {
     const { Command } = await import("commander");
-    const { registerModelsCli } = await import("./models-cli.js");
 
     const program = new Command();
     registerModelsCli(program);
@@ -79,7 +78,6 @@ describe("models cli", () => {
 
   it("shows help for models auth without error exit", async () => {
     const { Command } = await import("commander");
-    const { registerModelsCli } = await import("./models-cli.js");
 
     const program = new Command();
     program.exitOverride();

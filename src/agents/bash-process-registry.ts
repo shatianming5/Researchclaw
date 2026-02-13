@@ -126,6 +126,14 @@ export function appendOutput(session: ProcessSession, stream: "stdout" | "stderr
     session.truncated || aggregated.length < session.aggregated.length + chunk.length;
   session.aggregated = aggregated;
   session.tail = tail(session.aggregated, 2000);
+
+  const finished = finishedSessions.get(session.id);
+  if (finished) {
+    finished.aggregated = session.aggregated;
+    finished.tail = session.tail;
+    finished.truncated = session.truncated;
+    finished.totalOutputChars = session.totalOutputChars;
+  }
 }
 
 export function drainSession(session: ProcessSession) {

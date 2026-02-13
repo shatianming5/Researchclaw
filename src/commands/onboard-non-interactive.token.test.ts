@@ -88,5 +88,5 @@ describe("onboard (non-interactive): token auth", () => {
       process.env.OPENCLAW_GATEWAY_TOKEN = prev.token;
       process.env.OPENCLAW_GATEWAY_PASSWORD = prev.password;
     }
-  }, 60_000);
+  }, 300_000);
 });

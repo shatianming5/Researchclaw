@@ -107,7 +107,7 @@ async function runLobsterSubprocessOnce(
   useShell: boolean,
 ) {
   const { execPath, argv, cwd } = params;
-  const timeoutMs = Math.max(200, params.timeoutMs);
+  const timeoutMs = Math.max(20_000, params.timeoutMs);
   const maxStdoutBytes = Math.max(1024, params.maxStdoutBytes);
 
   const env = { ...process.env, LOBSTER_MODE: "tool" } as Record<string, string | undefined>;

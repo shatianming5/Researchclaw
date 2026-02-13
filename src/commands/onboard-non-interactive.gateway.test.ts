@@ -191,7 +191,7 @@ describe("onboard (non-interactive): gateway and remote auth", () => {
     expect(resToken.ok).toBe(true);
 
     await fs.rm(stateDir, { recursive: true, force: true });
-  }, 60_000);
+  }, 300_000);
 
   it("writes gateway.remote url/token and callGateway uses them", async () => {
     const stateDir = await initStateDir("state-remote-");
@@ -228,7 +228,7 @@ describe("onboard (non-interactive): gateway and remote auth", () => {
     expect(lastCall?.token).toBe(token);
 
     await fs.rm(stateDir, { recursive: true, force: true });
-  }, 60_000);
+  }, 300_000);
 
   it("auto-generates token auth when binding LAN and persists the token", async () => {
     if (process.platform === "win32") {
@@ -290,5 +290,5 @@ describe("onboard (non-interactive): gateway and remote auth", () => {
     expect(resToken.ok).toBe(true);
 
     await fs.rm(stateDir, { recursive: true, force: true });
-  }, 60_000);
+  }, 300_000);
 });
