@@ -341,6 +341,18 @@ export async function executeProposalPlan(params: {
 
     let nodeResult: ExecuteNodeResult;
     try {
+      let hostWorkdirOverride: string | undefined;
+      const repoRef = repoWorkflow.resolveRepoRef(node);
+      if (repoRef && shouldUseRepoWorktreeForNode(node)) {
+        const record = await repoWorkflow.prepareWorktree(repoRef);
+        hostWorkdirOverride = record.worktreeAbs;
+        const list = executedNodeIdsByRepoKey.get(repoRef.repoKey) ?? [];
+        list.push(node.id);
+        executedNodeIdsByRepoKey.set(repoRef.repoKey, list);
+      }
+
+      const maybeRepair = repoRef && hostWorkdirOverride && repairHook ? repairHook : undefined;
+
       nodeResult = isGpuNode(node)
         ? await (async () => {
             const nodeKey = (opts.node ?? "").trim();
@@ -353,12 +365,14 @@ export async function executeProposalPlan(params: {
                 maxAttempts: opts.maxAttempts,
                 retryDelayMs: opts.retryDelayMs,
                 retrySpec,
+                hostWorkdirOverride,
                 gatewayUrl: opts.gatewayUrl,
                 gatewayToken: opts.gatewayToken,
                 gatewayTimeoutMs: opts.gatewayTimeoutMs,
                 invokeTimeoutMs: opts.invokeTimeoutMs,
                 nodeApprove: opts.nodeApprove,
                 callGateway: callGatewayImpl,
+                maybeRepair,
               });
             }
             return await runGpuNodeViaGateway({
@@ -370,46 +384,35 @@ export async function executeProposalPlan(params: {
               maxAttempts: opts.maxAttempts,
               retryDelayMs: opts.retryDelayMs,
               retrySpec,
+              hostWorkdirOverride,
               gatewayUrl: opts.gatewayUrl,
               gatewayToken: opts.gatewayToken,
               gatewayTimeoutMs: opts.gatewayTimeoutMs,
               invokeTimeoutMs: opts.invokeTimeoutMs,
               nodeApprove: opts.nodeApprove,
               callGateway: callGatewayImpl,
+              maybeRepair,
             });
           })()
-        : await (async () => {
-            let hostWorkdirOverride: string | undefined;
-            const repoRef = repoWorkflow.resolveRepoRef(node);
-            if (repoRef && shouldUseRepoWorktreeForNode(node)) {
-              const record = await repoWorkflow.prepareWorktree(repoRef);
-              hostWorkdirOverride = record.worktreeAbs;
-              const list = executedNodeIdsByRepoKey.get(repoRef.repoKey) ?? [];
-              list.push(node.id);
-              executedNodeIdsByRepoKey.set(repoRef.repoKey, list);
-            }
+        : await runCpuShellNode({
+            planDir,
+            node,
+            dryRun: opts.dryRun,
+            commandTimeoutMs: opts.commandTimeoutMs,
+            maxAttempts: opts.maxAttempts,
+            retryDelayMs: opts.retryDelayMs,
+            retrySpec,
+            hostWorkdirOverride,
+            runInSandbox,
+            maybeRepair,
+          });
 
-            const nodeResult = await runCpuShellNode({
-              planDir,
-              node,
-              dryRun: opts.dryRun,
-              commandTimeoutMs: opts.commandTimeoutMs,
-              maxAttempts: opts.maxAttempts,
-              retryDelayMs: opts.retryDelayMs,
-              retrySpec,
-              hostWorkdirOverride,
-              runInSandbox,
-              maybeRepair: repairHook,
-            });
-
-            if (repoRef) {
-              repoWorkflow.recordNode(repoRef.repoKey, {
-                nodeId: node.id,
-                status: nodeResult.status,
-              });
-            }
-            return nodeResult;
-          })();
+      if (repoRef) {
+        repoWorkflow.recordNode(repoRef.repoKey, {
+          nodeId: node.id,
+          status: nodeResult.status,
+        });
+      }
     } catch (err) {
       errors.push(`${nodeId}: ${String(err)}`);
       break;

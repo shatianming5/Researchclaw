@@ -249,4 +249,125 @@ describe("proposal/execute", () => {
     expect(nodeRes?.attempts.length).toBe(2);
     expect(nodeRes?.attempts[0]?.patch).toBeTruthy();
   });
+
+  it("applies an LLM patch for GPU nodes when repo worktrees are enabled", async () => {
+    const planDir = await writePlanPackage({
+      dag: {
+        nodes: [
+          {
+            id: "train.run",
+            type: "train",
+            tool: "shell",
+            inputs: ["cache/git/repo"],
+            commands: ["node build.js"],
+          },
+        ],
+        edges: [],
+      },
+      report: {
+        planId: "test-plan",
+        createdAt: new Date().toISOString(),
+        discovery: "plan",
+        warnings: [],
+        errors: [],
+        needsConfirm: [],
+      },
+      retry: {
+        policies: [
+          { id: "retry.unknown", category: "unknown", maxAttempts: 2, retryablePatterns: [] },
+        ],
+        defaultPolicyId: "retry.unknown",
+      },
+    });
+
+    const repoRoot = path.join(planDir, "cache", "git", "repo");
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src", "app.ts"), "export const value = 1;\n", "utf-8");
+    await runCommandWithTimeout(["git", "init"], { cwd: repoRoot, timeoutMs: 10_000 });
+    await runCommandWithTimeout(["git", "config", "user.email", "test@example.com"], {
+      cwd: repoRoot,
+      timeoutMs: 10_000,
+    });
+    await runCommandWithTimeout(["git", "config", "user.name", "OpenClaw Test"], {
+      cwd: repoRoot,
+      timeoutMs: 10_000,
+    });
+    await runCommandWithTimeout(["git", "add", "-A"], { cwd: repoRoot, timeoutMs: 10_000 });
+    await runCommandWithTimeout(["git", "commit", "-m", "init"], {
+      cwd: repoRoot,
+      timeoutMs: 10_000,
+    });
+
+    const llmClient = {
+      modelKey: "test",
+      completeText: vi.fn(async () => {
+        return [
+          "*** Begin Patch",
+          "*** Update File: src/app.ts",
+          "@@",
+          "-export const value = 1;",
+          "+export const value = 2;",
+          "*** End Patch",
+          "",
+        ].join("\n");
+      }),
+    } satisfies ProposalLlmClient;
+
+    const worktreeRoot = path.join(planDir, "cache", "worktrees", "repo", "test-plan");
+
+    let invokeCount = 0;
+    const callGateway = vi.fn(async (opts: { method: string; params?: unknown }) => {
+      expect(opts.method).toBe("node.invoke");
+      const paramsObj =
+        opts.params && typeof opts.params === "object"
+          ? (opts.params as Record<string, unknown>)
+          : {};
+      const inner =
+        paramsObj.params && typeof paramsObj.params === "object"
+          ? (paramsObj.params as Record<string, unknown>)
+          : {};
+      expect(inner.cwd).toBe(worktreeRoot);
+
+      invokeCount += 1;
+      if (invokeCount === 1) {
+        return {
+          payload: {
+            exitCode: 1,
+            success: false,
+            timedOut: false,
+            stdout: "",
+            stderr: "src/app.ts:1:1 build failed\n",
+          },
+        };
+      }
+
+      const patched = await fs.readFile(path.join(worktreeRoot, "src", "app.ts"), "utf-8");
+      expect(patched).toContain("value = 2");
+      return { payload: { exitCode: 0, success: true, timedOut: false, stdout: "", stderr: "" } };
+    });
+
+    const res = await executeProposalPlan({
+      planDir,
+      cfg: {} as OpenClawConfig,
+      opts: { sandbox: false, repair: true, repairAttempts: 1, maxAttempts: 2, node: "node-123" },
+      deps: { callGateway: callGateway as unknown as typeof callGateway, llmClient },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(callGateway).toHaveBeenCalledTimes(2);
+    expect(llmClient.completeText).toHaveBeenCalledTimes(1);
+
+    const base = await fs.readFile(path.join(repoRoot, "src", "app.ts"), "utf-8");
+    expect(base).toContain("value = 1");
+
+    const patched = await fs.readFile(path.join(worktreeRoot, "src", "app.ts"), "utf-8");
+    expect(patched).toContain("value = 2");
+
+    const repairDir = path.join(planDir, "report", "repairs", "train.run");
+    await expect(fs.stat(path.join(repairDir, "attempt-1.patch"))).resolves.toBeTruthy();
+
+    const nodeRes = res.results.find((r) => r.nodeId === "train.run");
+    expect(nodeRes?.attempts.length).toBe(2);
+    expect(nodeRes?.attempts[0]?.patch).toBeTruthy();
+  });
 });

@@ -5,6 +5,7 @@ import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent
 import { loadConfig } from "../config/config.js";
 import { compileProposal } from "../proposal/compiler.js";
 import { executeProposalPlan } from "../proposal/execute.js";
+import { refineProposalPlan } from "../proposal/refine.js";
 import { renderNeedsConfirmMd } from "../proposal/render.js";
 import { acceptProposalResults } from "../proposal/results/index.js";
 import { runProposalPlanSafeNodes } from "../proposal/run.js";
@@ -40,6 +41,14 @@ type ProposalRunOpts = {
   retryDelayMs?: string;
   commandTimeoutMs?: string;
   failOnNeedsConfirm?: boolean;
+};
+
+type ProposalRefineOpts = {
+  dryRun?: boolean;
+  json?: boolean;
+  opencodeModel?: string;
+  opencodeAgent?: string;
+  timeoutMs?: string;
 };
 
 type ProposalExecuteOpts = {
@@ -269,6 +278,71 @@ export function registerProposalCli(program: Command) {
         );
         defaultRuntime.log(
           `${theme.muted("Suggestions:")} ${theme.command(shortenHomePath(res.paths.suggestions))}`,
+        );
+
+        if (!res.ok) {
+          defaultRuntime.exit(1);
+        }
+      });
+    });
+
+  proposal
+    .command("refine")
+    .description(
+      "Generate executable commands for train/eval/report nodes using OpenCode (opencode CLI)",
+    )
+    .argument("<planDir>", "Plan package directory (experiments/workdir/<planId>)")
+    .option("--dry-run", "Do not write updated DAG; only render refine artifacts", false)
+    .option(
+      "--opencode-model <provider/model>",
+      "OpenCode model id (default: opencode/kimi-k2.5-free)",
+      "opencode/kimi-k2.5-free",
+    )
+    .option("--opencode-agent <name>", "OpenCode agent name (optional)")
+    .option("--timeout-ms <ms>", "OpenCode timeout in ms (default: 180000)", "180000")
+    .option("--json", "Output JSON", false)
+    .action(async (planDir: string, opts: ProposalRefineOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const timeoutMs = Math.max(10_000, Math.floor(Number(opts.timeoutMs ?? "180000")));
+        const model = opts.opencodeModel?.trim() || "opencode/kimi-k2.5-free";
+
+        const res = await refineProposalPlan({
+          planDir,
+          opts: {
+            dryRun: Boolean(opts.dryRun),
+            model,
+            agent: opts.opencodeAgent?.trim() || undefined,
+            timeoutMs,
+          },
+        });
+
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify(res, null, 2));
+          if (!res.ok) {
+            defaultRuntime.exit(1);
+          }
+          return;
+        }
+
+        defaultRuntime.log(
+          `${theme.heading("Proposal refine")} ${res.ok ? theme.success("✓") : theme.error("✗")}`,
+        );
+        if (res.planId) {
+          defaultRuntime.log(`${theme.muted("Plan:")} ${theme.command(res.planId)}`);
+        }
+        defaultRuntime.log(`${theme.muted("Dir:")} ${theme.command(shortenHomePath(res.planDir))}`);
+        for (const w of res.warnings) {
+          defaultRuntime.log(theme.warn(`- ${w}`));
+        }
+        for (const e of res.errors) {
+          defaultRuntime.log(theme.error(`- ${e}`));
+        }
+        defaultRuntime.log("");
+        defaultRuntime.log(
+          `${theme.muted("Summary:")} ${theme.command(shortenHomePath(res.paths.refineSummary))}`,
+        );
+        defaultRuntime.log(
+          `${theme.muted("Report:")} ${theme.command(shortenHomePath(res.paths.refineReport))}`,
         );
 
         if (!res.ok) {
