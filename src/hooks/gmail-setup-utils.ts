@@ -5,7 +5,8 @@ import { runCommandWithTimeout, type SpawnResult } from "../process/exec.js";
 import { resolveUserPath } from "../utils.js";
 import { normalizeServePath } from "./gmail.js";
 
-let cachedPythonPath: string | null | undefined;
+let cachedPythonPath: string | undefined;
+let cachedPythonPathKey: string | undefined;
 let cachedPythonPathMissKey: string | undefined;
 const MAX_OUTPUT_CHARS = 800;
 
@@ -61,6 +62,18 @@ function formatCommand(command: string, args: string[]): string {
   return [command, ...args].join(" ");
 }
 
+function isExecutable(filePath: string): boolean {
+  if (typeof fs.accessSync !== "function" || !fs.constants) {
+    return true;
+  }
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function findExecutablesOnPath(bins: string[]): string[] {
   const pathEnv = process.env.PATH ?? "";
   const parts = pathEnv.split(path.delimiter).filter(Boolean);
@@ -72,13 +85,15 @@ function findExecutablesOnPath(bins: string[]): string[] {
       if (seen.has(candidate)) {
         continue;
       }
-      try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        matches.push(candidate);
-        seen.add(candidate);
-      } catch {
-        // keep scanning
+      seen.add(candidate);
+      if (typeof fs.accessSync === "function" && fs.constants) {
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+        } catch {
+          continue;
+        }
       }
+      matches.push(candidate);
     }
   }
   return matches;
@@ -118,21 +133,23 @@ function ensureGcloudOnPath(): boolean {
 
 export async function resolvePythonExecutablePath(): Promise<string | undefined> {
   const currentKey = process.env.PATH ?? "";
-  if (typeof cachedPythonPath === "string") {
+  if (cachedPythonPath && cachedPythonPathKey === currentKey) {
     return cachedPythonPath;
   }
-  if (cachedPythonPath === null) {
-    if (cachedPythonPathMissKey === currentKey) {
-      return undefined;
-    }
-    cachedPythonPath = undefined;
+  if (cachedPythonPathMissKey === currentKey) {
+    return cachedPythonPath;
   }
   const candidates = findExecutablesOnPath(["python3", "python"]);
   for (const candidate of candidates) {
-    const res = await runCommandWithTimeout(
-      [candidate, "-c", "import os, sys; print(os.path.realpath(sys.executable))"],
-      { timeoutMs: 2_000 },
-    );
+    let res: Awaited<ReturnType<typeof runCommandWithTimeout>>;
+    try {
+      res = await runCommandWithTimeout(
+        [candidate, "-c", "import os, sys; print(os.path.realpath(sys.executable))"],
+        { timeoutMs: 2_000 },
+      );
+    } catch {
+      continue;
+    }
     if (res.code !== 0) {
       continue;
     }
@@ -140,18 +157,16 @@ export async function resolvePythonExecutablePath(): Promise<string | undefined>
     if (!resolved) {
       continue;
     }
-    try {
-      fs.accessSync(resolved, fs.constants.X_OK);
-      cachedPythonPath = resolved;
-      cachedPythonPathMissKey = undefined;
-      return resolved;
-    } catch {
-      // keep scanning
+    if (!isExecutable(resolved)) {
+      continue;
     }
+    cachedPythonPath = resolved;
+    cachedPythonPathKey = currentKey;
+    cachedPythonPathMissKey = undefined;
+    return resolved;
   }
-  cachedPythonPath = null;
   cachedPythonPathMissKey = currentKey;
-  return undefined;
+  return cachedPythonPath;
 }
 
 async function gcloudEnv(): Promise<NodeJS.ProcessEnv | undefined> {
