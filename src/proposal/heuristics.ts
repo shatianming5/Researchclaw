@@ -90,9 +90,53 @@ function extractHfDatasets(text: string): DatasetEntity[] {
   return uniqBy(datasets, (d) => d.url ?? d.name ?? "");
 }
 
+function extractKaggleDatasets(text: string): DatasetEntity[] {
+  const datasets: DatasetEntity[] = [];
+
+  const shorthandRe =
+    /(?:^|\n)\s*(?:[-*]\s*)?(?:kaggle\s+dataset|dataset)\s*[:：]\s*([\w.-]+)\/([\w.-]+)\b/gi;
+  for (const match of text.matchAll(shorthandRe)) {
+    const owner = match[1];
+    const dataset = match[2];
+    if (!owner || !dataset) {
+      continue;
+    }
+    const id = `${owner}/${dataset}`;
+    datasets.push({
+      name: id,
+      url: `https://www.kaggle.com/datasets/${owner}/${dataset}`,
+      platform: "kaggle",
+      hintText: String(match[0] ?? "").trim(),
+    });
+  }
+
+  const urlRe = /https?:\/\/(?:www\.)?kaggle\.com\/datasets\/[^\s)]+/gi;
+  for (const match of text.matchAll(urlRe)) {
+    const rawUrl = String(match[0] ?? "").replace(/[),.;]+$/g, "");
+    const m = rawUrl.match(/kaggle\.com\/datasets\/([\w.-]+)\/([\w.-]+)/i);
+    if (!m?.[1] || !m[2]) {
+      continue;
+    }
+    const owner = m[1];
+    const dataset = m[2];
+    const id = `${owner}/${dataset}`;
+    datasets.push({
+      name: id,
+      url: `https://www.kaggle.com/datasets/${owner}/${dataset}`,
+      platform: "kaggle",
+      hintText: rawUrl,
+    });
+  }
+
+  return uniqBy(datasets, (d) => d.url ?? d.name ?? "");
+}
+
 export function heuristicExtractEntities(proposalMarkdown: string): ProposalEntities {
   const repos = extractGithubRepos(proposalMarkdown);
-  const datasets = extractHfDatasets(proposalMarkdown);
+  const datasets = uniqBy(
+    [...extractHfDatasets(proposalMarkdown), ...extractKaggleDatasets(proposalMarkdown)],
+    (d) => d.url ?? d.name ?? "",
+  );
 
   const baseline: ProposalEntities = {
     repos,

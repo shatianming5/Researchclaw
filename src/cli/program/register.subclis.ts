@@ -89,6 +89,14 @@ const entries: SubCliEntry[] = [
     },
   },
   {
+    name: "experiment",
+    description: "Experiment pipeline (compile + run + refine + execute + accept)",
+    register: async (program) => {
+      const mod = await import("../experiment-cli.js");
+      mod.registerExperimentCli(program);
+    },
+  },
+  {
     name: "approvals",
     description: "Exec approvals",
     register: async (program) => {
@@ -102,6 +110,14 @@ const entries: SubCliEntry[] = [
     register: async (program) => {
       const mod = await import("../nodes-cli.js");
       mod.registerNodesCli(program);
+    },
+  },
+  {
+    name: "gpu",
+    description: "GPU job scheduler",
+    register: async (program) => {
+      const mod = await import("../gpu-cli.js");
+      mod.registerGpuCli(program);
     },
   },
   {

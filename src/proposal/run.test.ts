@@ -256,6 +256,243 @@ describe("proposal/run", () => {
     await expect(fs.stat(path.join(outDir, "sample.json"))).resolves.toBeTruthy();
   });
 
+  it("runs fetch_dataset_sample node commands via openclaw proposal dataset sample", async () => {
+    const planDir = await writePlanPackage({
+      dag: {
+        nodes: [
+          {
+            id: "data.sample.squad",
+            type: "fetch_dataset_sample",
+            tool: "shell",
+            outputs: ["cache/data/squad"],
+            commands: ["openclaw proposal dataset sample --dataset squad --out cache/data/squad"],
+          },
+        ],
+        edges: [],
+      },
+      discovery: {
+        repos: [],
+        datasets: [
+          {
+            platform: "hf",
+            resolvedId: "squad",
+            resolvedUrl: "https://huggingface.co/datasets/squad",
+            input: { name: "squad" },
+            exists: true,
+            evidence: [],
+            warnings: [],
+          },
+        ],
+      },
+      report: {
+        planId: "test-plan",
+        createdAt: new Date().toISOString(),
+        discovery: "sample",
+        warnings: [],
+        errors: [],
+        needsConfirm: [],
+      },
+    });
+
+    const fetchFn = vi.fn(async () => new Response("not expected", { status: 500 }));
+
+    const runCommand = vi.fn(async (argv: string[], opts?: { cwd?: string }) => {
+      expect(argv).toEqual([
+        "openclaw",
+        "proposal",
+        "dataset",
+        "sample",
+        "--dataset",
+        "squad",
+        "--out",
+        "cache/data/squad",
+      ]);
+      expect(opts?.cwd).toBe(planDir);
+
+      const outDir = path.join(planDir, "cache", "data", "squad");
+      await fs.mkdir(outDir, { recursive: true });
+      await fs.writeFile(path.join(outDir, "sample.json"), "{}", "utf-8");
+      await fs.writeFile(path.join(outDir, "discovered.json"), "{}", "utf-8");
+
+      return { code: 0, stdout: "", stderr: "" };
+    });
+
+    const res = await runProposalPlanSafeNodes({
+      planDir,
+      deps: { fetchFn, runCommand },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(runCommand).toHaveBeenCalledTimes(1);
+
+    const outDir = path.join(planDir, "cache", "data", "squad");
+    await expect(fs.stat(path.join(outDir, "sample.json"))).resolves.toBeTruthy();
+  });
+
+  it("skips Kaggle dataset sampling commands when credentials are missing", async () => {
+    const prevState = process.env.OPENCLAW_STATE_DIR;
+    const tmpState = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-proposal-kaggle-"));
+    process.env.OPENCLAW_STATE_DIR = tmpState;
+
+    try {
+      const planDir = await writePlanPackage({
+        dag: {
+          nodes: [
+            {
+              id: "data.sample.owner-ds",
+              type: "fetch_dataset_sample",
+              tool: "shell",
+              outputs: ["cache/data/owner-ds"],
+              commands: [
+                "openclaw proposal dataset sample --platform kaggle --dataset owner/ds --out cache/data/owner-ds",
+              ],
+            },
+          ],
+          edges: [],
+        },
+        discovery: {
+          repos: [],
+          datasets: [
+            {
+              platform: "kaggle",
+              resolvedId: "owner/ds",
+              resolvedUrl: "https://www.kaggle.com/datasets/owner/ds",
+              input: { name: "owner/ds" },
+              exists: undefined,
+              evidence: [],
+              warnings: [],
+            },
+          ],
+        },
+        report: {
+          planId: "test-plan",
+          createdAt: new Date().toISOString(),
+          discovery: "sample",
+          warnings: [],
+          errors: [],
+          needsConfirm: [],
+        },
+      });
+
+      const runCommand = vi.fn(async () => ({ code: 1, stdout: "", stderr: "not expected" }));
+      const res = await runProposalPlanSafeNodes({
+        planDir,
+        deps: { runCommand },
+      });
+
+      expect(res.ok).toBe(true);
+      expect(runCommand).not.toHaveBeenCalled();
+      expect(res.results[0]?.status).toBe("skipped");
+      expect(res.results[0]?.error).toContain("Kaggle credentials");
+    } finally {
+      if (prevState === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = prevState;
+      }
+    }
+  });
+
+  it("runs Kaggle dataset sampling commands when credentials are present", async () => {
+    const prevState = process.env.OPENCLAW_STATE_DIR;
+    const prevUser = process.env.KAGGLE_USERNAME;
+    const prevKey = process.env.KAGGLE_KEY;
+    const tmpState = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-proposal-kaggle-"));
+    process.env.OPENCLAW_STATE_DIR = tmpState;
+    process.env.KAGGLE_USERNAME = "user";
+    process.env.KAGGLE_KEY = "key";
+
+    try {
+      const planDir = await writePlanPackage({
+        dag: {
+          nodes: [
+            {
+              id: "data.sample.owner-ds",
+              type: "fetch_dataset_sample",
+              tool: "shell",
+              outputs: ["cache/data/owner-ds"],
+              commands: [
+                "openclaw proposal dataset sample --platform kaggle --dataset owner/ds --out cache/data/owner-ds",
+              ],
+            },
+          ],
+          edges: [],
+        },
+        discovery: {
+          repos: [],
+          datasets: [
+            {
+              platform: "kaggle",
+              resolvedId: "owner/ds",
+              resolvedUrl: "https://www.kaggle.com/datasets/owner/ds",
+              input: { name: "owner/ds" },
+              exists: undefined,
+              evidence: [],
+              warnings: [],
+            },
+          ],
+        },
+        report: {
+          planId: "test-plan",
+          createdAt: new Date().toISOString(),
+          discovery: "sample",
+          warnings: [],
+          errors: [],
+          needsConfirm: [],
+        },
+      });
+
+      const runCommand = vi.fn(async (argv: string[], opts?: { cwd?: string }) => {
+        expect(argv).toEqual([
+          "openclaw",
+          "proposal",
+          "dataset",
+          "sample",
+          "--platform",
+          "kaggle",
+          "--dataset",
+          "owner/ds",
+          "--out",
+          "cache/data/owner-ds",
+        ]);
+        expect(opts?.cwd).toBe(planDir);
+
+        const outDir = path.join(planDir, "cache", "data", "owner-ds");
+        await fs.mkdir(outDir, { recursive: true });
+        await fs.writeFile(path.join(outDir, "sample.json"), "{}", "utf-8");
+        await fs.writeFile(path.join(outDir, "discovered.json"), "{}", "utf-8");
+
+        return { code: 0, stdout: "", stderr: "" };
+      });
+
+      const res = await runProposalPlanSafeNodes({
+        planDir,
+        deps: { runCommand },
+      });
+
+      expect(res.ok).toBe(true);
+      expect(runCommand).toHaveBeenCalledTimes(1);
+      expect(res.results[0]?.status).toBe("ok");
+    } finally {
+      if (prevState === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = prevState;
+      }
+      if (prevUser === undefined) {
+        delete process.env.KAGGLE_USERNAME;
+      } else {
+        process.env.KAGGLE_USERNAME = prevUser;
+      }
+      if (prevKey === undefined) {
+        delete process.env.KAGGLE_KEY;
+      } else {
+        process.env.KAGGLE_KEY = prevKey;
+      }
+    }
+  });
+
   it("fetches a HF dataset sample even if metadata fetch fails", async () => {
     const planDir = await writePlanPackage({
       dag: {

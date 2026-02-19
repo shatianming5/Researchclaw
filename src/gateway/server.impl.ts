@@ -46,6 +46,7 @@ import { startGatewayConfigReloader } from "./config-reload.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
 import { GpuScheduler } from "./gpu-scheduler/scheduler.js";
 import { NodeRegistry } from "./node-registry.js";
+import { ProposalOrchestrator } from "./proposal-orchestrator/scheduler.js";
 import { createChannelManager } from "./server-channels.js";
 import { createAgentEventHandler } from "./server-chat.js";
 import { createGatewayCloseHandler } from "./server-close.js";
@@ -362,6 +363,15 @@ export async function startGatewayServer(
   void gpuScheduler.start().catch((err) => {
     log.warn(`gpu scheduler failed to start: ${String(err)}`);
   });
+  const proposalOrchestrator = new ProposalOrchestrator({
+    nodeRegistry,
+    gpuScheduler,
+    loadConfig,
+    log: log.child("proposal-orchestrator"),
+  });
+  void proposalOrchestrator.start().catch((err) => {
+    log.warn(`proposal orchestrator failed to start: ${String(err)}`);
+  });
   const nodePresenceTimers = new Map<string, ReturnType<typeof setInterval>>();
   const nodeSubscriptions = createNodeSubscriptionManager();
   const nodeSendEvent = (opts: { nodeId: string; event: string; payloadJSON?: string | null }) => {
@@ -517,6 +527,7 @@ export async function startGatewayServer(
       hasConnectedMobileNode: hasMobileNodeConnected,
       nodeRegistry,
       gpuScheduler,
+      proposalOrchestrator,
       agentRunSeq,
       chatAbortControllers,
       chatAbortedRuns: chatRunState.abortedRuns,
@@ -643,6 +654,7 @@ export async function startGatewayServer(
       }
       skillsChangeUnsub();
       gpuScheduler.stop();
+      proposalOrchestrator.stop();
       await close(opts);
     },
   };

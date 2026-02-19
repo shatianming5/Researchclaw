@@ -97,4 +97,41 @@ describe("proposal/repo-workflow", () => {
     expect(prBody).toContain("test-plan");
     expect(prBody).toContain("https://example.com/repo.git");
   });
+
+  it("applies a bootstrap patch to the worktree when present", async () => {
+    const planDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-repo-workflow-bootstrap-"));
+    const repoRoot = path.join(planDir, "cache", "git", "repo");
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src", "app.ts"), "export const value = 1;\n", "utf-8");
+    await initGitRepo(repoRoot);
+
+    const patchesDir = path.join(planDir, "report", "bootstrap", "worktree_patches");
+    await fs.mkdir(patchesDir, { recursive: true });
+    await fs.writeFile(
+      path.join(patchesDir, "repo.patch"),
+      [
+        "*** Begin Patch",
+        "*** Update File: src/app.ts",
+        "@@",
+        "-export const value = 1;",
+        "+export const value = 42;",
+        "*** End Patch",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const manager = new RepoWorkflowManager({
+      planDir,
+      planId: "test-plan",
+      runHostCommand: runCommandWithTimeout,
+    });
+    const record = await manager.prepareWorktree({ repoRel: "cache/git/repo", repoKey: "repo" });
+
+    const base = await fs.readFile(path.join(repoRoot, "src", "app.ts"), "utf-8");
+    expect(base).toContain("value = 1");
+
+    const worktree = await fs.readFile(path.join(record.worktreeAbs, "src", "app.ts"), "utf-8");
+    expect(worktree).toContain("value = 42");
+  });
 });

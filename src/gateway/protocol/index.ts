@@ -116,6 +116,12 @@ import {
   type GpuJobListParams,
   GpuJobListParamsSchema,
   GpuJobListResultSchema,
+  type GpuJobPauseParams,
+  GpuJobPauseParamsSchema,
+  GpuJobPauseResultSchema,
+  type GpuJobResumeParams,
+  GpuJobResumeParamsSchema,
+  GpuJobResumeResultSchema,
   GpuJobSchema,
   type GpuJobState,
   GpuJobStateSchema,
@@ -371,6 +377,8 @@ export const validateGpuJobSubmitParams = ajv.compile<GpuJobSubmitParams>(GpuJob
 export const validateGpuJobGetParams = ajv.compile<GpuJobGetParams>(GpuJobGetParamsSchema);
 export const validateGpuJobListParams = ajv.compile<GpuJobListParams>(GpuJobListParamsSchema);
 export const validateGpuJobCancelParams = ajv.compile<GpuJobCancelParams>(GpuJobCancelParamsSchema);
+export const validateGpuJobPauseParams = ajv.compile<GpuJobPauseParams>(GpuJobPauseParamsSchema);
+export const validateGpuJobResumeParams = ajv.compile<GpuJobResumeParams>(GpuJobResumeParamsSchema);
 export const validateGpuJobWaitParams = ajv.compile<GpuJobWaitParams>(GpuJobWaitParamsSchema);
 
 export function formatValidationErrors(errors: ErrorObject[] | null | undefined) {
@@ -471,6 +479,10 @@ export {
   GpuJobListResultSchema,
   GpuJobCancelParamsSchema,
   GpuJobCancelResultSchema,
+  GpuJobPauseParamsSchema,
+  GpuJobPauseResultSchema,
+  GpuJobResumeParamsSchema,
+  GpuJobResumeResultSchema,
   GpuJobWaitParamsSchema,
   GpuJobWaitResultSchema,
   AgentSummarySchema,

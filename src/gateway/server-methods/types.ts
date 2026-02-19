@@ -7,6 +7,7 @@ import type { WizardSession } from "../../wizard/session.js";
 import type { ChatAbortControllerEntry } from "../chat-abort.js";
 import type { GpuScheduler } from "../gpu-scheduler/scheduler.js";
 import type { NodeRegistry } from "../node-registry.js";
+import type { ProposalOrchestrator } from "../proposal-orchestrator/scheduler.js";
 import type { ConnectParams, ErrorShape, RequestFrame } from "../protocol/index.js";
 import type { ChannelRuntimeSnapshot } from "../server-channels.js";
 import type { DedupeEntry } from "../server-shared.js";
@@ -61,6 +62,7 @@ export type GatewayRequestContext = {
   hasConnectedMobileNode: () => boolean;
   nodeRegistry: NodeRegistry;
   gpuScheduler: GpuScheduler;
+  proposalOrchestrator: ProposalOrchestrator;
   agentRunSeq: Map<string, number>;
   chatAbortControllers: Map<string, ChatAbortControllerEntry>;
   chatAbortedRuns: Map<string, number>;

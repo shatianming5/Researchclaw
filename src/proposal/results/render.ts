@@ -66,6 +66,31 @@ export function renderAcceptanceReportMd(report: AcceptanceReport): string {
     lines.push("");
   }
 
+  if (report.repairs) {
+    lines.push("## Repairs");
+    lines.push("");
+    for (const entry of report.repairs.entries) {
+      lines.push(
+        `- \`${entry.nodeId}\` attempt ${entry.patchAttempt} (${entry.status}) — evidence: \`${entry.evidenceMd}\``,
+      );
+      for (const delta of entry.keyDeltas) {
+        lines.push(`  - ${delta.name}: ${delta.delta ?? ""}`);
+      }
+    }
+    if (report.repairs.entries.length === 0) {
+      lines.push("- (none)");
+    }
+    lines.push("");
+    if (report.repairs.warnings.length > 0) {
+      lines.push("### Repair Warnings");
+      lines.push("");
+      for (const warning of report.repairs.warnings) {
+        lines.push(`- ${warning}`);
+      }
+      lines.push("");
+    }
+  }
+
   if (report.warnings.length > 0) {
     lines.push("## Warnings");
     for (const warning of report.warnings) {

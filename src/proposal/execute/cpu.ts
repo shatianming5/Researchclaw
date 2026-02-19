@@ -1,7 +1,15 @@
+import path from "node:path";
 import type { CommandOptions, SpawnResult } from "../../process/exec.js";
 import type { PlanNode, RetrySpec } from "../schema.js";
 import type { ExecuteAttempt, ExecuteNodeResult } from "./types.js";
 import { inferHostWorkdir } from "./node-utils.js";
+import {
+  collectMetricsSnapshot,
+  finalizeRepairEvidence,
+  recordPendingRepair,
+  writeAppliedOnlyRepairEvidence,
+  type PendingRepair,
+} from "./repair-evidence.js";
 import { classifyFailure, computeBackoffMs, resolveRetryPolicy } from "./retry.js";
 import { sleepMs, tail } from "./utils.js";
 
@@ -47,6 +55,8 @@ export async function runCpuShellNode(params: {
 
   const hostWorkdir = params.hostWorkdirOverride ?? inferHostWorkdir(params.planDir, params.node);
   const raw = `set -e\n${commands.join("\n")}\n`;
+  const workdirRel = path.relative(params.planDir, hostWorkdir).replaceAll("\\", "/") || ".";
+  let pendingRepair: PendingRepair | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const startedAt = new Date().toISOString();
@@ -76,6 +86,7 @@ export async function runCpuShellNode(params: {
     const result = await params.runInSandbox(["sh", "-lc", raw], {
       cwd: hostWorkdir,
       timeoutMs: params.commandTimeoutMs,
+      env: params.node.env,
     });
 
     const stdoutTail = tail(result.stdout);
@@ -102,6 +113,31 @@ export async function runCpuShellNode(params: {
 
     if (ok) {
       attempts.push(attemptRecord);
+      if (pendingRepair && pendingRepair.rerunAttempt === attempt) {
+        await finalizeRepairEvidence({
+          planDir: params.planDir,
+          workdirRel,
+          node: {
+            id: params.node.id,
+            type: params.node.type,
+            tool: params.node.tool,
+            commands: params.node.commands,
+          },
+          pending: pendingRepair,
+          after: {
+            ok,
+            exitCode: result.code,
+            timedOut: result.killed,
+            failureCategory: undefined,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            stdoutTail: stdoutTail || undefined,
+            stderrTail: stderrTail || undefined,
+          },
+          metricsAfter: await collectMetricsSnapshot(params.planDir),
+        });
+        pendingRepair = null;
+      }
       return {
         nodeId,
         type: params.node.type,
@@ -116,6 +152,32 @@ export async function runCpuShellNode(params: {
     // Record the failed attempt before any repair action.
     attempts.push(attemptRecord);
 
+    if (pendingRepair && pendingRepair.rerunAttempt === attempt) {
+      await finalizeRepairEvidence({
+        planDir: params.planDir,
+        workdirRel,
+        node: {
+          id: params.node.id,
+          type: params.node.type,
+          tool: params.node.tool,
+          commands: params.node.commands,
+        },
+        pending: pendingRepair,
+        after: {
+          ok,
+          exitCode: result.code,
+          timedOut: result.killed,
+          failureCategory: failureCategory ?? "unknown",
+          stdout: result.stdout,
+          stderr: result.stderr,
+          stdoutTail: stdoutTail || undefined,
+          stderrTail: stderrTail || undefined,
+        },
+        metricsAfter: await collectMetricsSnapshot(params.planDir),
+      });
+      pendingRepair = null;
+    }
+
     if (params.maybeRepair) {
       try {
         const repaired = await params.maybeRepair({
@@ -128,6 +190,36 @@ export async function runCpuShellNode(params: {
         });
         if (repaired.applied && repaired.patch) {
           attemptRecord.patch = repaired.patch;
+          const pending: PendingRepair = {
+            nodeId,
+            patchAttempt: attemptRecord.attempt,
+            rerunAttempt: attemptRecord.attempt + 1,
+            patchPath: repaired.patch.patchPath,
+            patchSummary: repaired.patch.summary,
+            before: {
+              ok: attemptRecord.ok,
+              exitCode: attemptRecord.exitCode ?? null,
+              timedOut: attemptRecord.timedOut,
+              failureCategory: attemptRecord.failureCategory,
+              stdout: result.stdout,
+              stderr: result.stderr,
+              stdoutTail: attemptRecord.stdoutTail,
+              stderrTail: attemptRecord.stderrTail,
+            },
+            metricsBefore: await collectMetricsSnapshot(params.planDir),
+            warnings: [],
+          };
+          pendingRepair = await recordPendingRepair({
+            planDir: params.planDir,
+            workdirRel,
+            node: {
+              id: params.node.id,
+              type: params.node.type,
+              tool: params.node.tool,
+              commands: params.node.commands,
+            },
+            pending,
+          });
         }
       } catch {
         // Ignore repair failures; retry policy still applies.
@@ -137,6 +229,24 @@ export async function runCpuShellNode(params: {
     if (attempt < maxAttempts) {
       const backoffMs = computeBackoffMs(policy, attempt, params.retryDelayMs);
       await sleepMs(backoffMs);
+    }
+  }
+
+  if (pendingRepair) {
+    try {
+      await writeAppliedOnlyRepairEvidence({
+        planDir: params.planDir,
+        workdirRel,
+        node: {
+          id: params.node.id,
+          type: params.node.type,
+          tool: params.node.tool,
+          commands: params.node.commands,
+        },
+        pending: pendingRepair,
+      });
+    } catch {
+      // Ignore evidence failures.
     }
   }
 

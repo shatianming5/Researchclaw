@@ -5,6 +5,8 @@ import {
   validateGpuJobCancelParams,
   validateGpuJobGetParams,
   validateGpuJobListParams,
+  validateGpuJobPauseParams,
+  validateGpuJobResumeParams,
   validateGpuJobSubmitParams,
   validateGpuJobWaitParams,
 } from "../protocol/index.js";
@@ -26,6 +28,7 @@ export const gpuHandlers: GatewayRequestHandlers = {
         resources: p.resources,
         exec: p.exec,
         maxAttempts: p.maxAttempts,
+        policy: p.policy,
       });
       respond(true, { job }, undefined);
     });
@@ -96,6 +99,64 @@ export const gpuHandlers: GatewayRequestHandlers = {
           false,
           undefined,
           errorShape(ErrorCodes.INVALID_REQUEST, res.reason ?? "cancel failed"),
+        );
+        return;
+      }
+      respond(true, { ok: true }, undefined);
+    });
+  },
+
+  "gpu.job.pause": async ({ params, respond, context }) => {
+    if (!validateGpuJobPauseParams(params)) {
+      respondInvalidParams({
+        respond,
+        method: "gpu.job.pause",
+        validator: validateGpuJobPauseParams,
+      });
+      return;
+    }
+    const { jobId } = params;
+    const id = String(jobId ?? "").trim();
+    if (!id) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "jobId required"));
+      return;
+    }
+    await respondUnavailableOnThrow(respond, async () => {
+      const res = await context.gpuScheduler.pause(id);
+      if (!res.ok) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, res.reason ?? "pause failed"),
+        );
+        return;
+      }
+      respond(true, { ok: true }, undefined);
+    });
+  },
+
+  "gpu.job.resume": async ({ params, respond, context }) => {
+    if (!validateGpuJobResumeParams(params)) {
+      respondInvalidParams({
+        respond,
+        method: "gpu.job.resume",
+        validator: validateGpuJobResumeParams,
+      });
+      return;
+    }
+    const { jobId } = params;
+    const id = String(jobId ?? "").trim();
+    if (!id) {
+      respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, "jobId required"));
+      return;
+    }
+    await respondUnavailableOnThrow(respond, async () => {
+      const res = await context.gpuScheduler.resume(id);
+      if (!res.ok) {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, res.reason ?? "resume failed"),
         );
         return;
       }

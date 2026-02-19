@@ -109,6 +109,7 @@ describe("cli program (smoke)", () => {
     const program = buildProgram();
     const names = program.commands.map((command) => command.name());
     expect(names).toContain("memory");
+    expect(names).toContain("experiment");
   });
 
   it("runs tui without overriding timeout", async () => {

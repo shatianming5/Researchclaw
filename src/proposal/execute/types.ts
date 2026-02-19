@@ -32,6 +32,7 @@ export type ProposalExecuteOpts = {
   node?: string;
   nodeApprove?: "off" | "allow-once" | "allow-always";
   invokeTimeoutMs?: number;
+  gpuWaitTimeoutMs?: number;
 };
 
 export type ExecuteNodeStatus = "ok" | "failed" | "skipped" | "dry_run";

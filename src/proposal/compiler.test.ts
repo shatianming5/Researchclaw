@@ -49,6 +49,7 @@ describe("proposal/compiler", () => {
     await expect(fs.stat(result.paths.retry)).resolves.toBeTruthy();
     await expect(fs.stat(result.paths.needsConfirm)).resolves.toBeTruthy();
     await expect(fs.stat(result.paths.runbook)).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(result.rootDir, "plan", "runbook.md"))).resolves.toBeTruthy();
 
     const validation = await validatePlanDir(result.rootDir);
     expect(validation.ok).toBe(true);
@@ -92,5 +93,47 @@ describe("proposal/compiler", () => {
     const fetchNode = (dag.nodes ?? []).find((n) => n.id === "repo.fetch.openclaw-openclaw");
     expect(fetchNode?.type).toBe("fetch_repo");
     expect(fetchNode?.commands?.[0]).toContain("https://github.com/openclaw/openclaw.git");
+  });
+
+  it("emits a Kaggle full download node for Kaggle datasets", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-proposal-"));
+    const workspaceDir = path.join(tmp, "ws");
+    await fs.mkdir(workspaceDir, { recursive: true });
+
+    const proposalPath = path.join(tmp, "proposal.md");
+    await fs.writeFile(
+      proposalPath,
+      [
+        "# My Proposal",
+        "",
+        "Dataset: https://www.kaggle.com/datasets/owner/ds",
+        "",
+        "Goal: download data and run training.",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = await compileProposal({
+      proposalPath,
+      cfg: {},
+      workspaceDir,
+      discovery: "off",
+      useLlm: false,
+    });
+
+    const dagRaw = await fs.readFile(result.paths.dag, "utf-8");
+    const dag = JSON.parse(dagRaw) as {
+      nodes?: Array<{ id?: string; type?: string; tool?: string; commands?: string[] }>;
+      edges?: Array<{ from?: string; to?: string }>;
+    };
+
+    const fetchNode = (dag.nodes ?? []).find((n) => n.id === "data.fetch.owner-ds");
+    expect(fetchNode?.type).toBe("fetch_dataset_kaggle");
+    expect(fetchNode?.tool).toBe("shell");
+    expect(fetchNode?.commands?.join("\n")).toContain("kaggle datasets download -d owner/ds");
+
+    const edges = (dag.edges ?? []).map((e) => `${e.from}→${e.to}`);
+    expect(edges).toContain("review.needs_confirm→data.fetch.owner-ds");
+    expect(edges).toContain("data.fetch.owner-ds→train.run");
   });
 });

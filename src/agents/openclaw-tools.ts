@@ -7,6 +7,7 @@ import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import { createCronTool } from "./tools/cron-tool.js";
+import { createExperimentTool } from "./tools/experiment-tool.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
 import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
@@ -105,6 +106,11 @@ export function createOpenClawTools(options?: {
     createTtsTool({
       agentChannel: options?.agentChannel,
       config: options?.config,
+    }),
+    createExperimentTool({
+      agentSessionKey: options?.agentSessionKey,
+      config: options?.config,
+      workspaceDir: options?.workspaceDir,
     }),
     createGatewayTool({
       agentSessionKey: options?.agentSessionKey,

@@ -13,13 +13,10 @@ import {
   resolveCurrentMetrics,
 } from "./collect.js";
 import { evaluateAcceptanceSpec } from "./evaluate.js";
+import { computeMetricDeltas } from "./metrics.js";
 import { renderAcceptanceReportMd } from "./render.js";
-import {
-  AcceptanceReportSchema,
-  type AcceptanceReport,
-  type MetricDelta,
-  type MetricValue,
-} from "./schema.js";
+import { collectRepairEvidenceIndex } from "./repairs.js";
+import { AcceptanceReportSchema, type AcceptanceReport, type MetricValue } from "./schema.js";
 
 export const DEFAULT_ARCHIVE_PATHS: string[] = [
   "input/proposal.md",
@@ -33,49 +30,12 @@ export const DEFAULT_ARCHIVE_PATHS: string[] = [
   "report/execute_log.json",
   "report/execute_summary.md",
   "report/static_checks",
+  "report/checkpoint_manifest.json",
   "report/final_metrics.json",
   "report/final_report.md",
   "report/repo_workflow",
   "report/repairs",
 ];
-
-function metricToNumber(value: MetricValue | undefined): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function computeMetricDeltas(params: {
-  current: Record<string, MetricValue>;
-  baseline?: Record<string, MetricValue>;
-}): MetricDelta[] {
-  const keys = new Set<string>(Object.keys(params.current));
-  for (const key of Object.keys(params.baseline ?? {})) {
-    keys.add(key);
-  }
-
-  const out: MetricDelta[] = [];
-  for (const name of [...keys].toSorted()) {
-    const current = params.current[name];
-    const baseline = params.baseline?.[name];
-    const currentNum = metricToNumber(current);
-    const baselineNum = metricToNumber(baseline);
-    out.push({
-      name,
-      current,
-      baseline,
-      delta: currentNum !== null && baselineNum !== null ? currentNum - baselineNum : null,
-    });
-  }
-  return out;
-}
 
 function statusToExitCode(status: AcceptanceReport["status"]): number {
   if (status === "pass") {
@@ -138,6 +98,8 @@ export async function acceptProposalResults(params: {
   warnings.push(...baselineResolved.warnings);
   warnings.push(...archiveBase.warnings);
 
+  const repairsIndex = await collectRepairEvidenceIndex(planDir);
+
   if (!validation.ok || !validation.data) {
     errors.push(...validation.errors);
     warnings.push(...validation.warnings);
@@ -160,6 +122,10 @@ export async function acceptProposalResults(params: {
         manifestPath: manifestJson,
         archived: archiveBase.archived,
         missing: archiveBase.missing,
+      },
+      repairs: {
+        entries: repairsIndex.entries,
+        warnings: repairsIndex.warnings,
       },
       warnings,
       errors,
@@ -241,6 +207,10 @@ export async function acceptProposalResults(params: {
       manifestPath: manifestJson,
       archived: archiveBase.archived,
       missing: archiveBase.missing,
+    },
+    repairs: {
+      entries: repairsIndex.entries,
+      warnings: repairsIndex.warnings,
     },
     warnings,
     errors,

@@ -89,6 +89,10 @@ import type {
   GpuJobGetResultSchema,
   GpuJobListParamsSchema,
   GpuJobListResultSchema,
+  GpuJobPauseParamsSchema,
+  GpuJobPauseResultSchema,
+  GpuJobResumeParamsSchema,
+  GpuJobResumeResultSchema,
   GpuJobSchema,
   GpuJobStateSchema,
   GpuJobSubmitParamsSchema,
@@ -203,6 +207,10 @@ export type GpuJobListParams = Static<typeof GpuJobListParamsSchema>;
 export type GpuJobListResult = Static<typeof GpuJobListResultSchema>;
 export type GpuJobCancelParams = Static<typeof GpuJobCancelParamsSchema>;
 export type GpuJobCancelResult = Static<typeof GpuJobCancelResultSchema>;
+export type GpuJobPauseParams = Static<typeof GpuJobPauseParamsSchema>;
+export type GpuJobPauseResult = Static<typeof GpuJobPauseResultSchema>;
+export type GpuJobResumeParams = Static<typeof GpuJobResumeParamsSchema>;
+export type GpuJobResumeResult = Static<typeof GpuJobResumeResultSchema>;
 export type GpuJobWaitParams = Static<typeof GpuJobWaitParamsSchema>;
 export type GpuJobWaitResult = Static<typeof GpuJobWaitResultSchema>;
 export type AgentSummary = Static<typeof AgentSummarySchema>;

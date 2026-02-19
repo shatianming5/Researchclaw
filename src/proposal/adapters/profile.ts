@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runCommandWithTimeout } from "../../process/exec.js";
@@ -10,6 +11,9 @@ import {
 import {
   RepoProfileSchema,
   type RepoProfile,
+  type RepoFrameworkGuess,
+  type RepoConfigCandidates,
+  type RepoEntrypointHints,
   type RepoFileExcerpt,
   type RepoLanguage,
 } from "./schema.js";
@@ -73,7 +77,7 @@ async function listFiles(params: {
       continue;
     }
 
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
     try {
       entries = await fs.readdir(current.dirAbs, { withFileTypes: true });
     } catch {
@@ -183,6 +187,197 @@ function pickEntrypoints(files: string[]): string[] {
   return out.toSorted();
 }
 
+function pickEntrypointHints(files: string[]): RepoEntrypointHints {
+  const trainRe: RegExp[] = [
+    /(?:^|\/)tools\/train\.py$/i,
+    /(?:^|\/)tools\/train_net\.py$/i,
+    /(?:^|\/)(train|finetune|fine_tune|run_train|run_finetune)\.py$/i,
+    /(?:^|\/)scripts\/train.*\.py$/i,
+    /(?:^|\/)examples\/.*train.*\.py$/i,
+  ];
+  const evalRe: RegExp[] = [
+    /(?:^|\/)tools\/test\.py$/i,
+    /(?:^|\/)tools\/train_net\.py$/i,
+    /(?:^|\/)(eval|evaluate|run_eval|run_evaluate)\.py$/i,
+    /(?:^|\/)scripts\/(eval|test).*\.py$/i,
+    /(?:^|\/)examples\/.*(eval|test).*\.py$/i,
+  ];
+
+  const train: string[] = [];
+  const evalEntrypoints: string[] = [];
+
+  for (const file of files) {
+    if (train.length < 16 && trainRe.some((re) => re.test(file))) {
+      train.push(file);
+    }
+    if (evalEntrypoints.length < 16 && evalRe.some((re) => re.test(file))) {
+      evalEntrypoints.push(file);
+    }
+    if (train.length >= 16 && evalEntrypoints.length >= 16) {
+      break;
+    }
+  }
+
+  return {
+    train: train.toSorted(),
+    eval: evalEntrypoints.toSorted(),
+  };
+}
+
+function collectConfigCandidates(files: string[]): RepoConfigCandidates {
+  const maxPerType = 20;
+
+  const mmengine: string[] = [];
+  const detectron2: string[] = [];
+  const lightning: string[] = [];
+
+  const mmengineRe = /(?:^|\/)configs\/.+\.py$/i;
+  const detectron2Re = /(?:^|\/)configs\/.+\.(yaml|yml)$/i;
+  const lightningRe = /(?:^|\/)(?:configs|config|conf)\/.+\.(yaml|yml|json)$/i;
+  const lightningRootRe = /(?:^|\/)(?:config|configs|hparams)\.(yaml|yml|json)$/i;
+
+  for (const file of files) {
+    if (mmengine.length < maxPerType && mmengineRe.test(file)) {
+      mmengine.push(file);
+    }
+    if (detectron2.length < maxPerType && detectron2Re.test(file)) {
+      detectron2.push(file);
+    }
+    if (lightning.length < maxPerType && (lightningRe.test(file) || lightningRootRe.test(file))) {
+      lightning.push(file);
+    }
+    if (
+      mmengine.length >= maxPerType &&
+      detectron2.length >= maxPerType &&
+      lightning.length >= maxPerType
+    ) {
+      break;
+    }
+  }
+
+  return {
+    lightning: lightning.toSorted(),
+    mmengine: mmengine.toSorted(),
+    detectron2: detectron2.toSorted(),
+  };
+}
+
+function buildFrameworkGuesses(params: {
+  files: string[];
+  frameworks: string[];
+  configCandidates: RepoConfigCandidates;
+}): RepoFrameworkGuess[] {
+  const hasFile = (rel: string) => params.files.includes(rel);
+  const hasFrameworkToken = (id: string) => params.frameworks.includes(id);
+
+  const guesses: RepoFrameworkGuess[] = [];
+
+  const addGuess = (guess: RepoFrameworkGuess) => {
+    if (guess.confidence <= 0) {
+      return;
+    }
+    guesses.push({
+      ...guess,
+      confidence: Math.max(0, Math.min(1, guess.confidence)),
+      evidence: [...new Set(guess.evidence.map((e) => e.trim()).filter(Boolean))].toSorted(),
+    });
+  };
+
+  // MMEngine
+  {
+    const evidence: string[] = [];
+    let confidence = 0;
+    if (hasFrameworkToken("mmengine")) {
+      evidence.push("text:mmengine");
+      confidence += 0.6;
+    }
+    if (
+      hasFile("tools/train.py") ||
+      params.files.some((f) => /(?:^|\/)tools\/train\.py$/i.test(f))
+    ) {
+      evidence.push("file:tools/train.py");
+      confidence += 0.3;
+    }
+    if (params.configCandidates.mmengine.length > 0) {
+      evidence.push("file:configs/*.py");
+      confidence += 0.1;
+    }
+    addGuess({ id: "mmengine", confidence, evidence });
+  }
+
+  // Detectron2
+  {
+    const evidence: string[] = [];
+    let confidence = 0;
+    if (hasFrameworkToken("detectron2")) {
+      evidence.push("text:detectron2");
+      confidence += 0.6;
+    }
+    if (
+      hasFile("tools/train_net.py") ||
+      params.files.some((f) => /(?:^|\/)tools\/train_net\.py$/i.test(f))
+    ) {
+      evidence.push("file:tools/train_net.py");
+      confidence += 0.3;
+    }
+    if (params.configCandidates.detectron2.length > 0) {
+      evidence.push("file:configs/*.yaml");
+      confidence += 0.1;
+    }
+    addGuess({ id: "detectron2", confidence, evidence });
+  }
+
+  // Lightning
+  {
+    const evidence: string[] = [];
+    let confidence = 0;
+    if (hasFrameworkToken("lightning")) {
+      evidence.push("text:lightning");
+      confidence += 0.7;
+    }
+    if (params.files.some((f) => /(?:^|\/)train\.py$/i.test(f))) {
+      evidence.push("file:train.py");
+      confidence += 0.2;
+    }
+    if (params.configCandidates.lightning.length > 0) {
+      evidence.push("file:config*.yaml");
+      confidence += 0.1;
+    }
+    addGuess({ id: "lightning", confidence, evidence });
+  }
+
+  // Transformers
+  {
+    const evidence: string[] = [];
+    let confidence = 0;
+    if (hasFrameworkToken("transformers")) {
+      evidence.push("text:transformers");
+      confidence += 0.8;
+    }
+    if (hasFrameworkToken("accelerate")) {
+      evidence.push("text:accelerate");
+      confidence += 0.1;
+    }
+    if (hasFrameworkToken("datasets")) {
+      evidence.push("text:datasets");
+      confidence += 0.05;
+    }
+    addGuess({ id: "transformers", confidence, evidence });
+  }
+
+  guesses.sort((a, b) => b.confidence - a.confidence || a.id.localeCompare(b.id));
+  const best = guesses[0];
+  if (!best || best.confidence < 0.35) {
+    return [{ id: "unknown", confidence: 0.25, evidence: [] }];
+  }
+
+  const out: RepoFrameworkGuess[] = [...guesses];
+  if (!out.some((g) => g.id === "unknown")) {
+    out.push({ id: "unknown", confidence: 0.2, evidence: [] });
+  }
+  return out;
+}
+
 export async function profileRepo(params: {
   planDir: string;
   repoRel: string;
@@ -247,6 +442,13 @@ export async function profileRepo(params: {
   );
   const frameworks = detectFrameworks(blobs);
   const entrypoints = pickEntrypoints(scan.files);
+  const entrypointHints = pickEntrypointHints(scan.files);
+  const configCandidates = collectConfigCandidates(scan.files);
+  const frameworkGuesses = buildFrameworkGuesses({
+    files: scan.files,
+    frameworks,
+    configCandidates,
+  });
 
   const runHostCommand = params.runHostCommand ?? runCommandWithTimeout;
   const gitRepo = await isGitRepo(repoAbs);
@@ -263,6 +465,9 @@ export async function profileRepo(params: {
     originUrl: originUrl ?? undefined,
     language,
     frameworks,
+    frameworkGuesses,
+    configCandidates,
+    entrypointHints,
     readme,
     dependencyFiles,
     entrypoints,

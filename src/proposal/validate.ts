@@ -12,6 +12,88 @@ import {
   type RetrySpec,
 } from "./schema.js";
 
+function normalizeRel(p: string): string {
+  return p.trim().replaceAll("\\", "/");
+}
+
+export type ValidatePlanDirOpts = {
+  /**
+   * Enforce checkpoint/resume contract (required for reliable GPU pause/resume).
+   * Default: false for backwards compatibility with older plan packages.
+   */
+  strictResume?: boolean;
+};
+
+function validateDagConventions(
+  dag: PlanDag,
+  opts?: ValidatePlanDirOpts,
+): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const strictResume = opts?.strictResume === true;
+
+  const setup =
+    dag.nodes.find((n) => n.id === "setup.venv") ?? dag.nodes.find((n) => n.type === "setup_venv");
+  const train =
+    dag.nodes.find((n) => n.id === "train.run") ?? dag.nodes.find((n) => n.type === "train");
+
+  if (!setup && !train) {
+    return { errors, warnings };
+  }
+
+  const setupOutputs = new Set((setup?.outputs ?? []).map((p) => normalizeRel(p)));
+  const venvOutput = [...setupOutputs].find((p) => p.startsWith("cache/venv/")) ?? "";
+  let repoKey = venvOutput ? venvOutput.slice("cache/venv/".length).split("/")[0]?.trim() : "";
+  if (!repoKey && train) {
+    const trainOutputs = (train.outputs ?? []).map((p) => normalizeRel(p));
+    const artifact = trainOutputs.find((p) => p.startsWith("artifacts/model/")) ?? "";
+    repoKey = artifact ? artifact.slice("artifacts/model/".length).split("/")[0]?.trim() : "";
+  }
+
+  if (setup) {
+    if (!venvOutput || !repoKey) {
+      errors.push("setup.venv: outputs must include cache/venv/<repoKey>.");
+    }
+    for (const required of ["cache/hf", "cache/pip"]) {
+      if (!setupOutputs.has(required)) {
+        errors.push(`setup.venv: outputs must include ${required}.`);
+      }
+    }
+  }
+
+  if (train && repoKey) {
+    const trainOutputs = new Set((train.outputs ?? []).map((p) => normalizeRel(p)));
+    const checkpointDir = `artifacts/model/${repoKey}`;
+    if (!trainOutputs.has(checkpointDir)) {
+      errors.push(`train.run: outputs must include ${checkpointDir}.`);
+    }
+
+    if (strictResume) {
+      if (!trainOutputs.has("report/checkpoint_manifest.json")) {
+        errors.push(
+          "train.run: outputs must include report/checkpoint_manifest.json (strictResume).",
+        );
+      }
+    }
+  }
+
+  if (strictResume && train) {
+    const cmdText = (train.commands ?? []).join("\n");
+    if (!cmdText.includes("plan/scripts/train.run.sh")) {
+      errors.push("train.run: commands must invoke plan/scripts/train.run.sh (strictResume).");
+    }
+    const env = train.env ?? {};
+    if (!env.OPENCLAW_PLAN_DIR) {
+      errors.push("train.run: env.OPENCLAW_PLAN_DIR is required (strictResume).");
+    }
+    if (!env.OPENCLAW_CHECKPOINT_DIR) {
+      errors.push("train.run: env.OPENCLAW_CHECKPOINT_DIR is required (strictResume).");
+    }
+  }
+
+  return { errors, warnings };
+}
+
 async function readJson(filePath: string): Promise<unknown> {
   const raw = await fs.readFile(filePath, "utf-8");
   return JSON.parse(raw) as unknown;
@@ -36,7 +118,10 @@ export type ValidatePlanResult = {
   };
 };
 
-export async function validatePlanDir(planDir: string): Promise<ValidatePlanResult> {
+export async function validatePlanDir(
+  planDir: string,
+  opts?: ValidatePlanDirOpts,
+): Promise<ValidatePlanResult> {
   const rootDir = path.resolve(planDir);
   const paths = {
     planDag: path.join(rootDir, "plan", "plan.dag.json"),
@@ -97,6 +182,22 @@ export async function validatePlanDir(planDir: string): Promise<ValidatePlanResu
   const topo = validateDag(dag);
   if (!topo.ok) {
     errors.push(...topo.errors);
+  }
+
+  const conventions = validateDagConventions(dag, opts);
+  warnings.push(...conventions.warnings);
+  errors.push(...conventions.errors);
+
+  if (opts?.strictResume === true) {
+    const script = path.join(rootDir, "plan", "scripts", "train.run.sh");
+    const inner = path.join(rootDir, "plan", "scripts", "train.run.inner.sh");
+    for (const p of [script, inner]) {
+      try {
+        await fs.stat(p);
+      } catch {
+        errors.push(`Missing required script: ${p}`);
+      }
+    }
   }
 
   const acceptance = acceptanceParsed.data;

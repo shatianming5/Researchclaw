@@ -52,6 +52,14 @@ export function buildBaselineAcceptance(params: { entities: ProposalEntities }):
     evidence: [],
     description: "Final human-readable report exists.",
   });
+  checks.push({
+    type: "artifact_exists",
+    selector: "report/checkpoint_manifest.json",
+    needs_confirm: false,
+    suggested_by: "compiler",
+    evidence: [],
+    description: "Checkpoint/resume manifest exists (required for GPU pause/resume).",
+  });
 
   for (const deliverable of params.entities.deliverables ?? []) {
     const trimmed = String(deliverable ?? "").trim();

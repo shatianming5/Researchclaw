@@ -126,6 +126,35 @@ export const AcceptanceReportSchema = z
         missing: z.array(z.string()).default([]),
       })
       .strip(),
+    repairs: z
+      .object({
+        entries: z
+          .array(
+            z
+              .object({
+                nodeId: z.string().min(1),
+                patchAttempt: z.number().int().min(1),
+                status: z.enum(["applied_only", "rerun_ok", "rerun_failed"]),
+                evidenceJson: z.string().min(1),
+                evidenceMd: z.string().min(1),
+                keyDeltas: z
+                  .array(
+                    z
+                      .object({
+                        name: z.string().min(1),
+                        delta: z.number().nullable().optional(),
+                      })
+                      .strip(),
+                  )
+                  .default([]),
+              })
+              .strip(),
+          )
+          .default([]),
+        warnings: z.array(z.string()).default([]),
+      })
+      .strip()
+      .optional(),
     warnings: z.array(z.string()).default([]),
     errors: z.array(z.string()).default([]),
     paths: z

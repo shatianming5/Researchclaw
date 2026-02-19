@@ -34,10 +34,38 @@ export type GpuJobExecSpec = {
   approvalDecision?: GpuApprovalDecision;
 };
 
+export type GpuJobPolicyWindow = {
+  /**
+   * Days of week for this window (e.g. ["mon","tue"]).
+   * When omitted or empty, applies to all days.
+   */
+  days?: string[];
+  /**
+   * Start time (HH:MM, 24h).
+   */
+  start: string;
+  /**
+   * End time (HH:MM, 24h). If end < start, the window wraps past midnight.
+   */
+  end: string;
+  /**
+   * Optional IANA timezone for evaluating this window (e.g. "America/Los_Angeles").
+   * When omitted, scheduler uses the gateway host timezone.
+   */
+  tz?: string;
+};
+
+export type GpuJobPolicy = {
+  autoPause?: boolean;
+  autoResume?: boolean;
+  windows?: GpuJobPolicyWindow[];
+};
+
 export type GpuJobSubmitRequest = {
   resources: GpuJobResourceRequest;
   exec: GpuJobExecSpec;
   maxAttempts?: number;
+  policy?: GpuJobPolicy;
 };
 
 export type GpuJobAttempt = {
@@ -66,7 +94,18 @@ export type GpuJob = {
   createdAtMs: number;
   updatedAtMs: number;
   state: GpuJobState;
+  /**
+   * When true, this job remains queued but won't be dispatched.
+   * Only applies to queued jobs, but may be set while running when a pause is requested.
+   */
+  paused?: boolean;
+  pausedReason?: "manual" | "policy";
+  /**
+   * When true, the scheduler will preempt a running job and requeue it as paused.
+   */
+  pauseRequested?: boolean;
   notBeforeMs?: number;
+  policy?: GpuJobPolicy;
   resources: GpuJobResourceRequest;
   exec: GpuJobExecSpec;
   maxAttempts: number;

@@ -31,7 +31,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   // UI helpers
   "group:ui": ["browser", "canvas"],
   // Automation + infra
-  "group:automation": ["cron", "gateway"],
+  "group:automation": ["cron", "gateway", "experiment"],
   // Messaging surface
   "group:messaging": ["message"],
   // Nodes + device tools
@@ -44,6 +44,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
     "cron",
     "message",
     "gateway",
+    "experiment",
     "agents_list",
     "sessions_list",
     "sessions_history",
@@ -58,14 +59,14 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   ],
 };
 
-const OWNER_ONLY_TOOL_NAMES = new Set<string>(["whatsapp_login"]);
+const OWNER_ONLY_TOOL_NAMES = new Set<string>(["whatsapp_login", "experiment"]);
 
 const TOOL_PROFILES: Record<ToolProfileId, ToolProfilePolicy> = {
   minimal: {
     allow: ["session_status"],
   },
   coding: {
-    allow: ["group:fs", "group:runtime", "group:sessions", "group:memory", "image"],
+    allow: ["group:fs", "group:runtime", "group:sessions", "group:memory", "image", "experiment"],
   },
   messaging: {
     allow: [

@@ -152,4 +152,53 @@ describe("proposal/results accept", () => {
     expect(res.exitCode).toBe(1);
     expect(res.errors.length).toBe(0);
   });
+
+  it("includes repair evidence entries in the acceptance report", async () => {
+    const planDir = await writePlanPackage({
+      acceptance: {
+        checks: [],
+      },
+      metrics: { metrics: { accuracy: 0.9 } },
+      finalReport: "# Final\n\nok\n",
+      executeLog: {
+        results: [{ nodeId: "train.run", type: "train", attempts: [{ ok: true, exitCode: 0 }] }],
+      },
+    });
+
+    const repairDir = path.join(planDir, "report", "repairs", "train.run", "attempt-1");
+    await fs.mkdir(repairDir, { recursive: true });
+    await fs.writeFile(
+      path.join(repairDir, "repair_evidence.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          createdAt: new Date().toISOString(),
+          planDir,
+          node: { id: "train.run" },
+          attempts: { patchAttempt: 1 },
+          before: { ok: false },
+          status: "applied_only",
+          warnings: [],
+          errors: [],
+          paths: {
+            evidenceJson: "report/repairs/train.run/attempt-1/repair_evidence.json",
+            evidenceMd: "report/repairs/train.run/attempt-1/repair_evidence.md",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    await fs.writeFile(path.join(repairDir, "repair_evidence.md"), "# Repair Evidence\n", "utf-8");
+
+    const res = await acceptProposalResults({ planDir });
+
+    expect(res.repairs?.entries.length).toBe(1);
+    expect(res.repairs?.entries[0]?.nodeId).toBe("train.run");
+
+    const md = await fs.readFile(res.paths.reportMd, "utf-8");
+    expect(md).toContain("## Repairs");
+    expect(md).toContain("train.run");
+  });
 });

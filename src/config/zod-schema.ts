@@ -504,6 +504,32 @@ export const OpenClawSchema = z
           })
           .strict()
           .optional(),
+        gpuScheduler: z
+          .object({
+            policy: z
+              .object({
+                enabled: z.boolean().optional(),
+                intervalMs: z.number().int().positive().optional(),
+                autoPause: z.boolean().optional(),
+                autoResume: z.boolean().optional(),
+                windows: z
+                  .array(
+                    z
+                      .object({
+                        days: z.array(z.string()).optional(),
+                        start: z.string(),
+                        end: z.string(),
+                        tz: z.string().optional(),
+                      })
+                      .strict(),
+                  )
+                  .optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

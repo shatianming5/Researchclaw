@@ -15,6 +15,7 @@ import {
   type PlanDag,
   type PlanNode,
 } from "./schema.js";
+import { resolveExecutionSecretsEnv, resolveKaggleCredentials } from "./secrets.js";
 import { validatePlanDir } from "./validate.js";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -105,6 +106,65 @@ function parseSafeGitClone(cmd: string): { url: string; branch?: string; target:
     throw new NonRetryableError(`Disallowed git URL: "${url}"`);
   }
   return { url, branch, target };
+}
+
+function parseSafeDatasetSampleCommand(cmd: string): {
+  platform?: "hf" | "kaggle";
+  dataset: string;
+  out: string;
+} {
+  const trimmed = cmd.trim();
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  if (tokens.length < 8) {
+    throw new NonRetryableError(`Unsupported fetch_dataset_sample command: "${trimmed}"`);
+  }
+  if (tokens[0] !== "openclaw" || tokens[1] !== "proposal" || tokens[2] !== "dataset") {
+    throw new NonRetryableError(`Unsupported fetch_dataset_sample command: "${trimmed}"`);
+  }
+  if (tokens[3] !== "sample") {
+    throw new NonRetryableError(`Unsupported fetch_dataset_sample command: "${trimmed}"`);
+  }
+
+  let platform: "hf" | "kaggle" | undefined;
+  let dataset = "";
+  let out = "";
+
+  for (let i = 4; i < tokens.length; i += 1) {
+    const flag = tokens[i] ?? "";
+    if (!flag.startsWith("--")) {
+      throw new NonRetryableError(`Unsupported fetch_dataset_sample command: "${trimmed}"`);
+    }
+    const value = tokens[i + 1] ?? "";
+    if (!value || value.startsWith("--")) {
+      throw new NonRetryableError(`Unsupported fetch_dataset_sample command: "${trimmed}"`);
+    }
+    i += 1;
+
+    if (flag === "--platform") {
+      if (value !== "hf" && value !== "kaggle") {
+        throw new NonRetryableError(`Unsupported dataset platform: "${value}"`);
+      }
+      platform = value;
+      continue;
+    }
+    if (flag === "--dataset") {
+      dataset = value;
+      continue;
+    }
+    if (flag === "--out") {
+      out = value;
+      continue;
+    }
+    throw new NonRetryableError(`Unsupported fetch_dataset_sample flag: "${flag}"`);
+  }
+
+  if (!dataset || !out) {
+    throw new NonRetryableError(`Invalid fetch_dataset_sample command: "${trimmed}"`);
+  }
+  if (!/^[\w.-]+(?:\/[\w.-]+)?$/.test(dataset)) {
+    throw new NonRetryableError(`Invalid dataset id: "${dataset}"`);
+  }
+  return { platform, dataset, out };
 }
 
 function isAllowedGitUrl(url: string): boolean {
@@ -477,9 +537,9 @@ async function runFetchDatasetSampleNode(params: {
   planDir: string;
   node: PlanNode;
   discovery: DiscoveryReport;
-  opts: Required<Pick<ProposalRunOpts, "dryRun">>;
+  opts: Required<Pick<ProposalRunOpts, "dryRun" | "commandTimeoutMs">>;
   retry: Required<Pick<ProposalRunOpts, "maxAttempts" | "retryDelayMs">>;
-  deps: Required<Pick<ProposalRunDeps, "fetchFn">>;
+  deps: Required<Pick<ProposalRunDeps, "fetchFn" | "runCommand">>;
 }): Promise<RunNodeResult> {
   const started = Date.now();
   const nodeId = params.node.id;
@@ -503,8 +563,109 @@ async function runFetchDatasetSampleNode(params: {
     };
   }
 
-  // Only HF is supported for automated sampling in Milestone 2.
-  if (mapped.entry.platform !== "hf") {
+  const command = params.node.commands?.[0]?.trim() ?? "";
+  if (command) {
+    const parsed = parseSafeDatasetSampleCommand(command);
+    const expectedDataset = (mapped.entry.resolvedId ?? mapped.entry.input.name ?? "").trim();
+    if (expectedDataset && parsed.dataset !== expectedDataset) {
+      throw new NonRetryableError(
+        `fetch_dataset_sample dataset mismatch (expected ${expectedDataset}, got ${parsed.dataset}).`,
+      );
+    }
+
+    const outRel = parsed.out.replaceAll("\\\\", "/");
+    if (outRel !== safeOut.rel) {
+      throw new NonRetryableError(
+        `fetch_dataset_sample output mismatch (expected ${safeOut.rel}, got ${outRel}).`,
+      );
+    }
+
+    const effectivePlatform = parsed.platform ?? mapped.entry.platform;
+    if (
+      parsed.platform &&
+      mapped.entry.platform &&
+      parsed.platform !== mapped.entry.platform &&
+      mapped.entry.platform !== "unknown"
+    ) {
+      throw new NonRetryableError(
+        `fetch_dataset_sample platform mismatch (expected ${mapped.entry.platform}, got ${parsed.platform}).`,
+      );
+    }
+
+    if (effectivePlatform === "kaggle") {
+      const creds = await resolveKaggleCredentials();
+      if (!creds) {
+        return {
+          nodeId,
+          type: params.node.type,
+          status: "skipped",
+          attempts: 0,
+          durationMs: Date.now() - started,
+          outputs: params.node.outputs,
+          error:
+            "Kaggle credentials missing (set KAGGLE_USERNAME/KAGGLE_KEY or `openclaw proposal secrets set`).",
+        };
+      }
+    }
+
+    const argv = ["openclaw", "proposal", "dataset", "sample"];
+    if (effectivePlatform !== "hf") {
+      argv.push("--platform", effectivePlatform);
+    }
+    argv.push("--dataset", parsed.dataset, "--out", safeOut.rel);
+    let attemptsUsed = 0;
+    let stderrTail: string | undefined;
+    await retryAsync(
+      async () => {
+        attemptsUsed += 1;
+        const res = await params.deps.runCommand(argv, {
+          cwd: params.planDir,
+          timeoutMs: params.opts.commandTimeoutMs,
+        });
+        stderrTail = tail(res.stderr);
+        if (res.code !== 0) {
+          throw new Error(
+            `dataset sample command failed (code=${res.code ?? "null"}): ${stderrTail}`,
+          );
+        }
+      },
+      {
+        attempts: params.retry.maxAttempts,
+        minDelayMs: params.retry.retryDelayMs,
+        maxDelayMs: Math.max(params.retry.retryDelayMs, params.retry.retryDelayMs * 16),
+        jitter: 0,
+        shouldRetry: (err) => !(err instanceof NonRetryableError),
+      },
+    );
+
+    return {
+      nodeId,
+      type: params.node.type,
+      status: "ok",
+      attempts: attemptsUsed,
+      durationMs: Date.now() - started,
+      stderrTail,
+      outputs: params.node.outputs,
+    };
+  }
+
+  if (mapped.entry.platform === "kaggle") {
+    const creds = await resolveKaggleCredentials();
+    if (!creds) {
+      return {
+        nodeId,
+        type: params.node.type,
+        status: "skipped",
+        attempts: 0,
+        durationMs: Date.now() - started,
+        outputs: params.node.outputs,
+        error:
+          "Kaggle credentials missing (set KAGGLE_USERNAME/KAGGLE_KEY or `openclaw proposal secrets set`).",
+      };
+    }
+  }
+
+  if (mapped.entry.platform !== "hf" && mapped.entry.platform !== "kaggle") {
     return {
       nodeId,
       type: params.node.type,
@@ -587,6 +748,34 @@ export async function runProposalPlanSafeNodes(params: {
   const deps: Required<Pick<ProposalRunDeps, "fetchFn" | "runCommand">> = {
     fetchFn: params.deps?.fetchFn ?? fetch,
     runCommand: params.deps?.runCommand ?? runCommandWithTimeout,
+  };
+
+  const secretsEnv = await (async () => {
+    try {
+      return await resolveExecutionSecretsEnv();
+    } catch (err) {
+      warnings.push(`Failed to load secrets env: ${String(err)}`);
+      return {};
+    }
+  })();
+
+  const runCommandWithSecrets = async (
+    argv: string[],
+    options: CommandOptions,
+  ): Promise<SpawnResult> => {
+    if (Object.keys(secretsEnv).length === 0) {
+      return await deps.runCommand(argv, options);
+    }
+    const envMerged: NodeJS.ProcessEnv = {};
+    if (options.env) {
+      Object.assign(envMerged, options.env);
+    }
+    for (const [key, value] of Object.entries(secretsEnv)) {
+      if (!(key in envMerged)) {
+        envMerged[key] = value;
+      }
+    }
+    return await deps.runCommand(argv, { ...options, env: envMerged });
   };
 
   const validation = await validatePlanDir(planDir);
@@ -684,7 +873,7 @@ export async function runProposalPlanSafeNodes(params: {
           node,
           opts,
           retry: { maxAttempts: opts.maxAttempts, retryDelayMs: opts.retryDelayMs },
-          deps: { runCommand: deps.runCommand },
+          deps: { runCommand: runCommandWithSecrets },
         });
         results.push(res);
         if (res.status === "skipped" && res.error) {
@@ -697,7 +886,7 @@ export async function runProposalPlanSafeNodes(params: {
           discovery: pkg.discovery,
           opts,
           retry: { maxAttempts: opts.maxAttempts, retryDelayMs: opts.retryDelayMs },
-          deps: { fetchFn: deps.fetchFn },
+          deps: { fetchFn: deps.fetchFn, runCommand: runCommandWithSecrets },
         });
         results.push(res);
         if (res.status === "skipped" && res.error) {
@@ -708,7 +897,7 @@ export async function runProposalPlanSafeNodes(params: {
           planDir,
           node,
           opts,
-          deps: { runCommand: deps.runCommand },
+          deps: { runCommand: runCommandWithSecrets },
         });
         results.push(res);
       }

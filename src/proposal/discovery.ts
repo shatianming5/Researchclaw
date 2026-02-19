@@ -10,6 +10,7 @@ import {
   type DiscoveredRepo,
   type RepoEntity,
 } from "./schema.js";
+import { resolveHuggingFaceToken, resolveKaggleCredentials } from "./secrets.js";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -227,13 +228,78 @@ function resolveHfDatasetId(input: DatasetEntity): string | null {
   return fromUrl ?? null;
 }
 
-async function fetchJson(fetchFn: FetchLike, url: string, timeoutMs: number): Promise<unknown> {
+function parseKaggleHandle(value: string): { owner: string; dataset: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.includes(" ") || trimmed.includes("\n")) {
+    return null;
+  }
+  const parts = trimmed.split("/");
+  if (parts.length !== 2) {
+    return null;
+  }
+  const owner = parts[0]?.trim() ?? "";
+  const dataset = parts[1]?.trim() ?? "";
+  if (!owner || !dataset) {
+    return null;
+  }
+  if (!/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(dataset)) {
+    return null;
+  }
+  return { owner, dataset };
+}
+
+function extractKaggleHandleFromUrl(rawUrl: string): { owner: string; dataset: string } | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed);
+    const host = url.hostname.toLowerCase();
+    if (!host.endsWith("kaggle.com")) {
+      return null;
+    }
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length >= 3 && parts[0] === "datasets") {
+      const owner = parts[1]?.trim() ?? "";
+      const dataset = parts[2]?.trim() ?? "";
+      return parseKaggleHandle(`${owner}/${dataset}`);
+    }
+    if (parts.length >= 2) {
+      const owner = parts[0]?.trim() ?? "";
+      const dataset = parts[1]?.trim() ?? "";
+      return parseKaggleHandle(`${owner}/${dataset}`);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveKaggleHandle(input: DatasetEntity): { owner: string; dataset: string } | null {
+  const name = input.name?.trim() ?? "";
+  const url = input.url?.trim() ?? "";
+  return parseKaggleHandle(name) ?? extractKaggleHandleFromUrl(url);
+}
+
+async function fetchJson(
+  fetchFn: FetchLike,
+  url: string,
+  timeoutMs: number,
+  extraHeaders?: Record<string, string>,
+): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const headers: Record<string, string> = { accept: "application/json" };
+    for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+      if (typeof value === "string" && value.trim()) {
+        headers[key] = value;
+      }
+    }
     const res = await fetchFn(url, {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers,
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -304,13 +370,28 @@ export async function discoverDataset(params: {
       };
     }
     if (platform === "kaggle") {
+      const handle = resolveKaggleHandle(params.input);
+      const resolvedId = handle
+        ? `${handle.owner}/${handle.dataset}`
+        : params.input.name?.trim() || undefined;
+      const resolvedUrl = handle
+        ? `https://www.kaggle.com/datasets/${handle.owner}/${handle.dataset}`
+        : params.input.url?.trim() || undefined;
+      const evidence: string[] = [];
+      if (resolvedUrl) {
+        evidence.push(resolvedUrl);
+      }
+      const rawUrl = params.input.url?.trim();
+      if (rawUrl && rawUrl !== resolvedUrl) {
+        evidence.push(rawUrl);
+      }
       return {
         input: params.input,
         platform,
-        resolvedId: params.input.name?.trim() || undefined,
-        resolvedUrl: params.input.url?.trim() || undefined,
+        resolvedId,
+        resolvedUrl,
         exists: undefined,
-        evidence: params.input.url?.trim() ? [params.input.url.trim()] : [],
+        evidence,
         warnings: [
           "Kaggle datasets typically require credentials; discovery is disabled (mode=off).",
         ],
@@ -338,11 +419,13 @@ export async function discoverDataset(params: {
     }
     const apiUrl = `https://huggingface.co/api/datasets/${encodeURIComponent(id)}`;
     const pageUrl = `https://huggingface.co/datasets/${id}`;
+    const token = await resolveHuggingFaceToken();
+    const extraHeaders = token ? { authorization: `Bearer ${token}` } : undefined;
     const warnings: string[] = [];
     let exists: boolean | undefined;
     let meta: unknown;
     try {
-      meta = await fetchJson(fetchFn, apiUrl, timeoutMs);
+      meta = await fetchJson(fetchFn, apiUrl, timeoutMs, extraHeaders);
       exists = true;
     } catch (err) {
       warnings.push(`HF dataset metadata fetch failed: ${String(err)}`);
@@ -355,7 +438,7 @@ export async function discoverDataset(params: {
         const splitsUrl = `https://datasets-server.huggingface.co/splits?dataset=${encodeURIComponent(
           id,
         )}`;
-        const splits = (await fetchJson(fetchFn, splitsUrl, timeoutMs)) as {
+        const splits = (await fetchJson(fetchFn, splitsUrl, timeoutMs, extraHeaders)) as {
           splits?: Array<{ config?: string; split?: string }>;
         };
         const first = splits.splits?.[0];
@@ -365,7 +448,7 @@ export async function discoverDataset(params: {
           `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(id)}` +
           `&config=${encodeURIComponent(config)}&split=${encodeURIComponent(split)}` +
           `&offset=0&length=1`;
-        const rows = await fetchJson(fetchFn, rowsUrl, timeoutMs);
+        const rows = await fetchJson(fetchFn, rowsUrl, timeoutMs, extraHeaders);
         sample = { config, split, rows };
         exists = true;
       } catch (err) {
@@ -386,21 +469,76 @@ export async function discoverDataset(params: {
   }
 
   if (platform === "kaggle") {
+    const handle = resolveKaggleHandle(params.input);
+    if (!handle) {
+      return {
+        input: params.input,
+        platform,
+        exists: false,
+        evidence: [],
+        warnings: ["Kaggle dataset handle not found in name/url (expected owner/dataset)."],
+      };
+    }
+
+    const resolvedId = `${handle.owner}/${handle.dataset}`;
+    const pageUrl = `https://www.kaggle.com/datasets/${handle.owner}/${handle.dataset}`;
+    const evidence: string[] = [pageUrl];
     const url = params.input.url?.trim();
-    const name = params.input.name?.trim();
-    const evidence: string[] = [];
-    if (url) {
+    if (url && url !== pageUrl) {
       evidence.push(url);
     }
-    const warnings = [
-      "Kaggle datasets typically require credentials; compilation will not download data.",
-    ];
+
+    const creds = await resolveKaggleCredentials();
+    if (!creds) {
+      return {
+        input: params.input,
+        platform,
+        resolvedId,
+        resolvedUrl: pageUrl,
+        exists: undefined,
+        evidence,
+        warnings: [
+          "Kaggle credentials not configured. Set KAGGLE_USERNAME/KAGGLE_KEY or use `openclaw proposal secrets set`.",
+        ],
+      };
+    }
+
+    const auth = Buffer.from(`${creds.username}:${creds.key}`).toString("base64");
+    const headers = { authorization: `Basic ${auth}` };
+    const apiBase = "https://www.kaggle.com/api/v1";
+    const viewUrl = `${apiBase}/datasets/view/${handle.owner}/${handle.dataset}`;
+    const metadataUrl = `${apiBase}/datasets/metadata/${handle.owner}/${handle.dataset}`;
+    evidence.push(viewUrl, metadataUrl);
+
+    const warnings: string[] = [];
+    let exists: boolean | undefined;
+    let view: unknown;
+    try {
+      view = await fetchJson(fetchFn, viewUrl, timeoutMs, headers);
+      exists = true;
+    } catch (err) {
+      warnings.push(`Kaggle dataset view fetch failed: ${String(err)}`);
+      exists = false;
+    }
+
+    let sample: unknown;
+    if (params.mode === "sample") {
+      try {
+        const metadata = await fetchJson(fetchFn, metadataUrl, timeoutMs, headers);
+        sample = { view, metadata };
+        exists = true;
+      } catch (err) {
+        warnings.push(`Kaggle dataset metadata fetch failed: ${String(err)}`);
+      }
+    }
+
     return {
       input: params.input,
       platform,
-      resolvedId: name,
-      resolvedUrl: url,
-      exists: undefined,
+      resolvedId,
+      resolvedUrl: pageUrl,
+      exists,
+      sample: sample ?? view,
       evidence,
       warnings,
     };

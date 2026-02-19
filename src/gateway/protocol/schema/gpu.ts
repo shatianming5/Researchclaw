@@ -36,6 +36,25 @@ export const GpuJobExecSpecSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const GpuJobPolicyWindowSchema = Type.Object(
+  {
+    days: Type.Optional(Type.Array(NonEmptyString)),
+    start: NonEmptyString,
+    end: NonEmptyString,
+    tz: Type.Optional(NonEmptyString),
+  },
+  { additionalProperties: false },
+);
+
+export const GpuJobPolicySchema = Type.Object(
+  {
+    autoPause: Type.Optional(Type.Boolean()),
+    autoResume: Type.Optional(Type.Boolean()),
+    windows: Type.Optional(Type.Array(GpuJobPolicyWindowSchema)),
+  },
+  { additionalProperties: false },
+);
+
 export const GpuJobAttemptSchema = Type.Object(
   {
     attempt: Type.Integer({ minimum: 1 }),
@@ -69,7 +88,11 @@ export const GpuJobSchema = Type.Object(
     createdAtMs: Type.Integer({ minimum: 0 }),
     updatedAtMs: Type.Integer({ minimum: 0 }),
     state: GpuJobStateSchema,
+    paused: Type.Optional(Type.Boolean()),
+    pausedReason: Type.Optional(Type.Union([Type.Literal("manual"), Type.Literal("policy")])),
+    pauseRequested: Type.Optional(Type.Boolean()),
     notBeforeMs: Type.Optional(Type.Integer({ minimum: 0 })),
+    policy: Type.Optional(GpuJobPolicySchema),
     resources: GpuJobResourceRequestSchema,
     exec: GpuJobExecSpecSchema,
     maxAttempts: Type.Integer({ minimum: 1 }),
@@ -86,6 +109,7 @@ export const GpuJobSubmitParamsSchema = Type.Object(
     resources: GpuJobResourceRequestSchema,
     exec: GpuJobExecSpecSchema,
     maxAttempts: Type.Optional(Type.Integer({ minimum: 1 })),
+    policy: Type.Optional(GpuJobPolicySchema),
   },
   { additionalProperties: false },
 );
@@ -123,6 +147,26 @@ export const GpuJobCancelParamsSchema = Type.Object(
 );
 
 export const GpuJobCancelResultSchema = Type.Object(
+  { ok: Type.Boolean() },
+  { additionalProperties: false },
+);
+
+export const GpuJobPauseParamsSchema = Type.Object(
+  { jobId: NonEmptyString },
+  { additionalProperties: false },
+);
+
+export const GpuJobPauseResultSchema = Type.Object(
+  { ok: Type.Boolean() },
+  { additionalProperties: false },
+);
+
+export const GpuJobResumeParamsSchema = Type.Object(
+  { jobId: NonEmptyString },
+  { additionalProperties: false },
+);
+
+export const GpuJobResumeResultSchema = Type.Object(
   { ok: Type.Boolean() },
   { additionalProperties: false },
 );

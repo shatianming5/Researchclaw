@@ -4,12 +4,22 @@ import path from "node:path";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { loadConfig } from "../config/config.js";
 import { compileProposal } from "../proposal/compiler.js";
+import { discoverDataset } from "../proposal/discovery.js";
 import { executeProposalPlan } from "../proposal/execute.js";
+import { finalizeProposalPlan } from "../proposal/finalize.js";
 import { refineProposalPlan } from "../proposal/refine.js";
 import { renderNeedsConfirmMd } from "../proposal/render.js";
 import { acceptProposalResults } from "../proposal/results/index.js";
 import { runProposalPlanSafeNodes } from "../proposal/run.js";
 import { CompileReportSchema, DiscoveryModeSchema } from "../proposal/schema.js";
+import {
+  listSecretKeys,
+  resolveKaggleCredentials,
+  resolveHuggingFaceToken,
+  resolveSecretsFilePath,
+  setSecret,
+  unsetSecret,
+} from "../proposal/secrets.js";
 import { validatePlanDir } from "../proposal/validate.js";
 import { defaultRuntime } from "../runtime.js";
 import { theme } from "../terminal/theme.js";
@@ -28,6 +38,7 @@ type ProposalCompileOpts = {
 
 type ProposalValidateOpts = {
   json?: boolean;
+  strictResume?: boolean;
 };
 
 type ProposalReviewOpts = {
@@ -43,12 +54,39 @@ type ProposalRunOpts = {
   failOnNeedsConfirm?: boolean;
 };
 
+type ProposalDatasetSampleOpts = {
+  platform?: string;
+  dataset?: string;
+  out?: string;
+  timeoutMs?: string;
+  json?: boolean;
+};
+
+type ProposalSecretsSetOpts = {
+  value?: string;
+  stdin?: boolean;
+  json?: boolean;
+};
+
+type ProposalSecretsUnsetOpts = {
+  json?: boolean;
+};
+
+type ProposalSecretsListOpts = {
+  json?: boolean;
+};
+
+type ProposalSecretsDoctorOpts = {
+  json?: boolean;
+};
+
 type ProposalRefineOpts = {
   dryRun?: boolean;
   json?: boolean;
   opencodeModel?: string;
   opencodeAgent?: string;
   timeoutMs?: string;
+  writeAcceptance?: boolean;
 };
 
 type ProposalExecuteOpts = {
@@ -69,6 +107,7 @@ type ProposalExecuteOpts = {
   token?: string;
   timeout?: string;
   invokeTimeoutMs?: string;
+  gpuWaitTimeoutMs?: string;
   node?: string;
   nodeApprove?: string;
 };
@@ -77,6 +116,19 @@ type ProposalAcceptOpts = {
   baseline?: string;
   json?: boolean;
 };
+
+type ProposalFinalizeOpts = {
+  force?: boolean;
+  json?: boolean;
+};
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 export function registerProposalCli(program: Command) {
   const proposal = program
@@ -162,10 +214,15 @@ export function registerProposalCli(program: Command) {
     .command("validate")
     .description("Validate a compiled plan package directory")
     .argument("<planDir>", "Plan package directory (experiments/workdir/<planId>)")
+    .option(
+      "--strict-resume",
+      "Enforce checkpoint/resume contract (requires train wrapper scripts + manifest outputs)",
+      false,
+    )
     .option("--json", "Output JSON", false)
     .action(async (planDir: string, opts: ProposalValidateOpts) => {
       await runCommandWithRuntime(defaultRuntime, async () => {
-        const res = await validatePlanDir(planDir);
+        const res = await validatePlanDir(planDir, { strictResume: Boolean(opts.strictResume) });
         if (opts.json) {
           defaultRuntime.log(JSON.stringify(res, null, 2));
           if (!res.ok) {
@@ -286,6 +343,275 @@ export function registerProposalCli(program: Command) {
       });
     });
 
+  const dataset = proposal.command("dataset").description("Dataset helpers for proposal plans");
+  dataset
+    .command("sample")
+    .description("Fetch a small sample for a HuggingFace dataset into cache/data/<label>")
+    .option("--platform <platform>", "Dataset platform override: hf|kaggle (default: infer)")
+    .requiredOption("--dataset <idOrUrl>", "HuggingFace dataset id or URL")
+    .requiredOption("--out <dir>", "Output directory (relative to planDir)")
+    .option("--timeout-ms <ms>", "Network timeout per request in ms (default: 12000)", "12000")
+    .option("--json", "Output JSON", false)
+    .action(async (opts: ProposalDatasetSampleOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const datasetArg = (opts.dataset ?? "").trim();
+        const outRelRaw = (opts.out ?? "").trim();
+        if (!datasetArg) {
+          defaultRuntime.error("error: --dataset is required");
+          defaultRuntime.exit(1);
+          return;
+        }
+        if (!outRelRaw) {
+          defaultRuntime.error("error: --out is required");
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        const outRel = outRelRaw.replaceAll("\\", "/");
+        if (!outRel.startsWith("cache/data/")) {
+          defaultRuntime.error('error: --out must be under "cache/data/"');
+          defaultRuntime.exit(1);
+          return;
+        }
+        if (outRel.includes("/../") || outRel.startsWith("../") || outRel.startsWith("/")) {
+          defaultRuntime.error("error: --out must be a safe relative path");
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        const baseAbs = path.resolve(process.cwd(), "cache", "data");
+        const outAbs = path.resolve(process.cwd(), outRel);
+        const rel = path.relative(baseAbs, outAbs);
+        if (rel.startsWith("..") || path.isAbsolute(rel)) {
+          defaultRuntime.error('error: --out must be under "cache/data/"');
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        const timeoutMs = Math.max(1_000, Math.floor(Number(opts.timeoutMs ?? "12000")));
+
+        const platformRaw = (opts.platform ?? "").trim();
+        const platform: "hf" | "kaggle" | undefined =
+          platformRaw === "hf" ? "hf" : platformRaw === "kaggle" ? "kaggle" : undefined;
+
+        const isUrl = datasetArg.startsWith("http://") || datasetArg.startsWith("https://");
+        const input = isUrl
+          ? {
+              url: datasetArg,
+              platform: platform ?? ("hf" as const),
+              hintText: datasetArg,
+            }
+          : {
+              name: datasetArg,
+              platform: platform ?? ("hf" as const),
+              hintText: datasetArg,
+            };
+
+        const discovered = await discoverDataset({ input, mode: "sample", timeoutMs });
+        if (discovered.exists === false) {
+          defaultRuntime.error(
+            `error: dataset sample fetch failed (${discovered.warnings.join("; ")})`,
+          );
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        await fs.mkdir(outAbs, { recursive: true });
+        await fs.writeFile(
+          path.join(outAbs, "discovered.json"),
+          `${JSON.stringify(discovered, null, 2)}\n`,
+          "utf-8",
+        );
+        if (discovered.sample !== undefined) {
+          await fs.writeFile(
+            path.join(outAbs, "sample.json"),
+            `${JSON.stringify(discovered.sample, null, 2)}\n`,
+            "utf-8",
+          );
+        }
+
+        if (opts.json) {
+          defaultRuntime.log(
+            JSON.stringify(
+              {
+                ok: true,
+                dataset: discovered.resolvedId ?? datasetArg,
+                outDir: outRel,
+                warnings: discovered.warnings,
+              },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        defaultRuntime.log(
+          `${theme.success("✓")} Wrote dataset sample to ${theme.command(outRel)}`,
+        );
+        for (const warning of discovered.warnings) {
+          defaultRuntime.log(theme.warn(`- ${warning}`));
+        }
+      });
+    });
+
+  const secrets = proposal
+    .command("secrets")
+    .description("Manage proposal secrets (HuggingFace token, Kaggle credentials)");
+
+  secrets
+    .command("set")
+    .description("Set a secret key/value under $OPENCLAW_STATE_DIR/credentials/secrets.json")
+    .argument("<key>", "Secret key (e.g. huggingface.token, kaggle.username, kaggle.key)")
+    .option("--value <value>", "Secret value (use --stdin for safer entry)")
+    .option("--stdin", "Read the secret value from stdin", false)
+    .option("--json", "Output JSON", false)
+    .action(async (key: string, opts: ProposalSecretsSetOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const resolvedKey = key.trim();
+        if (!resolvedKey) {
+          defaultRuntime.error("error: key is required");
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        const rawValue = opts.stdin ? await readStdin() : String(opts.value ?? "");
+        const value = rawValue.trim();
+        if (!value) {
+          defaultRuntime.error("error: secret value is empty");
+          defaultRuntime.exit(1);
+          return;
+        }
+
+        const snapshot = await setSecret({ key: resolvedKey, value });
+        const keys = Object.keys(snapshot.file.secrets).toSorted((a, b) => a.localeCompare(b));
+
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify({ ok: true, path: snapshot.path, keys }, null, 2));
+          return;
+        }
+
+        defaultRuntime.log(`${theme.success("✓")} Saved secret ${theme.command(resolvedKey)}`);
+        defaultRuntime.log(
+          `${theme.muted("File:")} ${theme.command(shortenHomePath(snapshot.path))}`,
+        );
+        defaultRuntime.log(`${theme.muted("Keys:")} ${keys.length}`);
+      });
+    });
+
+  secrets
+    .command("unset")
+    .description("Remove a secret key")
+    .argument("<key>", "Secret key")
+    .option("--json", "Output JSON", false)
+    .action(async (key: string, opts: ProposalSecretsUnsetOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const resolvedKey = key.trim();
+        if (!resolvedKey) {
+          defaultRuntime.error("error: key is required");
+          defaultRuntime.exit(1);
+          return;
+        }
+        const res = await unsetSecret({ key: resolvedKey });
+        const keys = Object.keys(res.snapshot.file.secrets).toSorted((a, b) => a.localeCompare(b));
+
+        if (opts.json) {
+          defaultRuntime.log(
+            JSON.stringify(
+              { ok: true, changed: res.changed, path: res.snapshot.path, keys },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+
+        defaultRuntime.log(
+          res.changed
+            ? `${theme.success("✓")} Removed secret ${theme.command(resolvedKey)}`
+            : `${theme.muted("·")} Secret ${theme.command(resolvedKey)} not present`,
+        );
+        defaultRuntime.log(
+          `${theme.muted("File:")} ${theme.command(shortenHomePath(res.snapshot.path))}`,
+        );
+      });
+    });
+
+  secrets
+    .command("list")
+    .description("List configured secret keys")
+    .option("--json", "Output JSON", false)
+    .action(async (opts: ProposalSecretsListOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const keys = await listSecretKeys();
+        const secretsPath = resolveSecretsFilePath();
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify({ ok: true, path: secretsPath, keys }, null, 2));
+          return;
+        }
+        defaultRuntime.log(theme.heading("Proposal secrets"));
+        defaultRuntime.log(
+          `${theme.muted("File:")} ${theme.command(shortenHomePath(secretsPath))}`,
+        );
+        if (keys.length === 0) {
+          defaultRuntime.log(theme.muted("No secrets configured."));
+          return;
+        }
+        for (const key of keys) {
+          defaultRuntime.log(`- ${theme.command(key)}`);
+        }
+      });
+    });
+
+  secrets
+    .command("doctor")
+    .description("Check whether common secrets are configured (values are never printed)")
+    .option("--json", "Output JSON", false)
+    .action(async (opts: ProposalSecretsDoctorOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const secretsPath = resolveSecretsFilePath();
+        const hf = await resolveHuggingFaceToken();
+        const kaggle = await resolveKaggleCredentials();
+
+        const status = {
+          "huggingface.token": Boolean(hf),
+          "kaggle.username": Boolean(kaggle?.username),
+          "kaggle.key": Boolean(kaggle?.key),
+        };
+        const missing = Object.entries(status)
+          .filter(([, ok]) => !ok)
+          .map(([key]) => key);
+
+        if (opts.json) {
+          defaultRuntime.log(
+            JSON.stringify({ ok: true, path: secretsPath, configured: status, missing }, null, 2),
+          );
+          return;
+        }
+
+        defaultRuntime.log(theme.heading("Proposal secrets doctor"));
+        defaultRuntime.log(
+          `${theme.muted("File:")} ${theme.command(shortenHomePath(secretsPath))}`,
+        );
+        for (const [key, ok] of Object.entries(status)) {
+          defaultRuntime.log(ok ? `${theme.success("✓")} ${key}` : `${theme.warn("!")} ${key}`);
+        }
+        if (missing.length > 0) {
+          defaultRuntime.log("");
+          defaultRuntime.log(theme.muted("Tip: set via:"));
+          defaultRuntime.log(
+            `  ${theme.command("openclaw proposal secrets set huggingface.token --stdin")}`,
+          );
+          defaultRuntime.log(
+            `  ${theme.command("openclaw proposal secrets set kaggle.username --stdin")}`,
+          );
+          defaultRuntime.log(
+            `  ${theme.command("openclaw proposal secrets set kaggle.key --stdin")}`,
+          );
+        }
+      });
+    });
+
   proposal
     .command("refine")
     .description(
@@ -299,6 +625,7 @@ export function registerProposalCli(program: Command) {
       "opencode/kimi-k2.5-free",
     )
     .option("--opencode-agent <name>", "OpenCode agent name (optional)")
+    .option("--write-acceptance", "Write plan/acceptance.json from refine output (optional)", false)
     .option("--timeout-ms <ms>", "OpenCode timeout in ms (default: 180000)", "180000")
     .option("--json", "Output JSON", false)
     .action(async (planDir: string, opts: ProposalRefineOpts) => {
@@ -313,6 +640,7 @@ export function registerProposalCli(program: Command) {
             model,
             agent: opts.opencodeAgent?.trim() || undefined,
             timeoutMs,
+            writeAcceptance: Boolean(opts.writeAcceptance),
           },
         });
 
@@ -382,6 +710,11 @@ export function registerProposalCli(program: Command) {
     .option("--token <token>", "Gateway token (if required)")
     .option("--timeout <ms>", "Gateway timeout in ms (default: 30000)", "30000")
     .option("--invoke-timeout-ms <ms>", "Node invoke timeout in ms (default: 1200000)", "1200000")
+    .option(
+      "--gpu-wait-timeout-ms <ms>",
+      "Wait for eligible GPU nodes before failing (default: 0 = fail fast)",
+      "0",
+    )
     .option("--json", "Output JSON", false)
     .action(async (planDir: string, opts: ProposalExecuteOpts) => {
       await runCommandWithRuntime(defaultRuntime, async () => {
@@ -397,6 +730,7 @@ export function registerProposalCli(program: Command) {
           5_000,
           Math.floor(Number(opts.invokeTimeoutMs ?? "1200000")),
         );
+        const gpuWaitTimeoutMs = Math.max(0, Math.floor(Number(opts.gpuWaitTimeoutMs ?? "0")));
         const repairAttempts = Math.max(0, Math.floor(Number(opts.repairAttempts ?? "1")));
 
         const res = await executeProposalPlan({
@@ -424,6 +758,7 @@ export function registerProposalCli(program: Command) {
             gatewayToken: opts.token?.trim() || undefined,
             gatewayTimeoutMs,
             invokeTimeoutMs,
+            gpuWaitTimeoutMs,
           },
         });
 
@@ -461,6 +796,61 @@ export function registerProposalCli(program: Command) {
         );
         defaultRuntime.log(
           `${theme.muted("Summary:")} ${theme.command(shortenHomePath(res.paths.executeSummary))}`,
+        );
+
+        if (!res.ok) {
+          defaultRuntime.exit(1);
+        }
+      });
+    });
+
+  proposal
+    .command("finalize")
+    .description("Generate report/final_metrics.json and report/final_report.md for a plan package")
+    .argument("<planDir>", "Plan package directory (experiments/workdir/<planId>)")
+    .option("--force", "Overwrite existing artifacts", false)
+    .option("--json", "Output JSON", false)
+    .action(async (planDir: string, opts: ProposalFinalizeOpts) => {
+      await runCommandWithRuntime(defaultRuntime, async () => {
+        const res = await finalizeProposalPlan({
+          planDir,
+          opts: { force: Boolean(opts.force) },
+        });
+
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify(res, null, 2));
+          if (!res.ok) {
+            defaultRuntime.exit(1);
+          }
+          return;
+        }
+
+        defaultRuntime.log(
+          `${theme.heading("Proposal finalize")} ${res.ok ? theme.success("✓") : theme.error("✗")}`,
+        );
+        if (res.planId) {
+          defaultRuntime.log(`${theme.muted("Plan:")} ${theme.command(res.planId)}`);
+        }
+        defaultRuntime.log(`${theme.muted("Dir:")} ${theme.command(shortenHomePath(res.planDir))}`);
+        defaultRuntime.log(
+          `${theme.muted("Wrote:")} final_metrics=${res.wrote.finalMetrics ? "yes" : "no"} final_report=${
+            res.wrote.finalReport ? "yes" : "no"
+          }`,
+        );
+
+        for (const w of res.warnings) {
+          defaultRuntime.log(theme.warn(`- ${w}`));
+        }
+        for (const e of res.errors) {
+          defaultRuntime.log(theme.error(`- ${e}`));
+        }
+
+        defaultRuntime.log("");
+        defaultRuntime.log(
+          `${theme.muted("Final metrics:")} ${theme.command(shortenHomePath(res.paths.finalMetrics))}`,
+        );
+        defaultRuntime.log(
+          `${theme.muted("Final report:")} ${theme.command(shortenHomePath(res.paths.finalReport))}`,
         );
 
         if (!res.ok) {

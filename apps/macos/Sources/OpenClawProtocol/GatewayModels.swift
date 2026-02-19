@@ -19,6 +19,7 @@ public struct ConnectParams: Codable, Sendable {
     public let commands: [String]?
     public let permissions: [String: AnyCodable]?
     public let pathenv: String?
+    public let resources: [String: AnyCodable]?
     public let role: String?
     public let scopes: [String]?
     public let device: [String: AnyCodable]?
@@ -34,6 +35,7 @@ public struct ConnectParams: Codable, Sendable {
         commands: [String]?,
         permissions: [String: AnyCodable]?,
         pathenv: String?,
+        resources: [String: AnyCodable]?,
         role: String?,
         scopes: [String]?,
         device: [String: AnyCodable]?,
@@ -48,6 +50,7 @@ public struct ConnectParams: Codable, Sendable {
         self.commands = commands
         self.permissions = permissions
         self.pathenv = pathenv
+        self.resources = resources
         self.role = role
         self.scopes = scopes
         self.device = device
@@ -63,6 +66,7 @@ public struct ConnectParams: Codable, Sendable {
         case commands
         case permissions
         case pathenv = "pathEnv"
+        case resources
         case role
         case scopes
         case device
@@ -1565,6 +1569,269 @@ public struct WebLoginWaitParams: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case timeoutms = "timeoutMs"
         case accountid = "accountId"
+    }
+}
+
+public struct GpuJobSubmitParams: Codable, Sendable {
+    public let resources: [String: AnyCodable]
+    public let exec: [String: AnyCodable]
+    public let maxattempts: Int?
+
+    public init(
+        resources: [String: AnyCodable],
+        exec: [String: AnyCodable],
+        maxattempts: Int?
+    ) {
+        self.resources = resources
+        self.exec = exec
+        self.maxattempts = maxattempts
+    }
+    private enum CodingKeys: String, CodingKey {
+        case resources
+        case exec
+        case maxattempts = "maxAttempts"
+    }
+}
+
+public struct GpuJobSubmitResult: Codable, Sendable {
+    public let job: GpuJob
+
+    public init(
+        job: GpuJob
+    ) {
+        self.job = job
+    }
+    private enum CodingKeys: String, CodingKey {
+        case job
+    }
+}
+
+public struct GpuJobGetParams: Codable, Sendable {
+    public let jobid: String
+
+    public init(
+        jobid: String
+    ) {
+        self.jobid = jobid
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+    }
+}
+
+public struct GpuJobGetResult: Codable, Sendable {
+    public let job: GpuJob
+
+    public init(
+        job: GpuJob
+    ) {
+        self.job = job
+    }
+    private enum CodingKeys: String, CodingKey {
+        case job
+    }
+}
+
+public struct GpuJobListParams: Codable, Sendable {
+    public let state: AnyCodable?
+
+    public init(
+        state: AnyCodable?
+    ) {
+        self.state = state
+    }
+    private enum CodingKeys: String, CodingKey {
+        case state
+    }
+}
+
+public struct GpuJobListResult: Codable, Sendable {
+    public let jobs: [GpuJob]
+
+    public init(
+        jobs: [GpuJob]
+    ) {
+        self.jobs = jobs
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobs
+    }
+}
+
+public struct GpuJobCancelParams: Codable, Sendable {
+    public let jobid: String
+
+    public init(
+        jobid: String
+    ) {
+        self.jobid = jobid
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+    }
+}
+
+public struct GpuJobCancelResult: Codable, Sendable {
+    public let ok: Bool
+
+    public init(
+        ok: Bool
+    ) {
+        self.ok = ok
+    }
+    private enum CodingKeys: String, CodingKey {
+        case ok
+    }
+}
+
+public struct GpuJobPauseParams: Codable, Sendable {
+    public let jobid: String
+
+    public init(
+        jobid: String
+    ) {
+        self.jobid = jobid
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+    }
+}
+
+public struct GpuJobPauseResult: Codable, Sendable {
+    public let ok: Bool
+
+    public init(
+        ok: Bool
+    ) {
+        self.ok = ok
+    }
+    private enum CodingKeys: String, CodingKey {
+        case ok
+    }
+}
+
+public struct GpuJobResumeParams: Codable, Sendable {
+    public let jobid: String
+
+    public init(
+        jobid: String
+    ) {
+        self.jobid = jobid
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+    }
+}
+
+public struct GpuJobResumeResult: Codable, Sendable {
+    public let ok: Bool
+
+    public init(
+        ok: Bool
+    ) {
+        self.ok = ok
+    }
+    private enum CodingKeys: String, CodingKey {
+        case ok
+    }
+}
+
+public struct GpuJobWaitParams: Codable, Sendable {
+    public let jobid: String
+    public let timeoutms: Int?
+
+    public init(
+        jobid: String,
+        timeoutms: Int?
+    ) {
+        self.jobid = jobid
+        self.timeoutms = timeoutms
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+        case timeoutms = "timeoutMs"
+    }
+}
+
+public struct GpuJobWaitResult: Codable, Sendable {
+    public let done: Bool
+    public let job: GpuJob
+
+    public init(
+        done: Bool,
+        job: GpuJob
+    ) {
+        self.done = done
+        self.job = job
+    }
+    private enum CodingKeys: String, CodingKey {
+        case done
+        case job
+    }
+}
+
+public struct GpuJob: Codable, Sendable {
+    public let jobid: String
+    public let createdatms: Int
+    public let updatedatms: Int
+    public let state: AnyCodable
+    public let paused: Bool?
+    public let pauserequested: Bool?
+    public let notbeforems: Int?
+    public let resources: [String: AnyCodable]
+    public let exec: [String: AnyCodable]
+    public let maxattempts: Int
+    public let assignednodeid: String?
+    public let attempts: [[String: AnyCodable]]
+    public let result: [String: AnyCodable]?
+    public let cancelrequested: Bool?
+
+    public init(
+        jobid: String,
+        createdatms: Int,
+        updatedatms: Int,
+        state: AnyCodable,
+        paused: Bool?,
+        pauserequested: Bool?,
+        notbeforems: Int?,
+        resources: [String: AnyCodable],
+        exec: [String: AnyCodable],
+        maxattempts: Int,
+        assignednodeid: String?,
+        attempts: [[String: AnyCodable]],
+        result: [String: AnyCodable]?,
+        cancelrequested: Bool?
+    ) {
+        self.jobid = jobid
+        self.createdatms = createdatms
+        self.updatedatms = updatedatms
+        self.state = state
+        self.paused = paused
+        self.pauserequested = pauserequested
+        self.notbeforems = notbeforems
+        self.resources = resources
+        self.exec = exec
+        self.maxattempts = maxattempts
+        self.assignednodeid = assignednodeid
+        self.attempts = attempts
+        self.result = result
+        self.cancelrequested = cancelrequested
+    }
+    private enum CodingKeys: String, CodingKey {
+        case jobid = "jobId"
+        case createdatms = "createdAtMs"
+        case updatedatms = "updatedAtMs"
+        case state
+        case paused
+        case pauserequested = "pauseRequested"
+        case notbeforems = "notBeforeMs"
+        case resources
+        case exec
+        case maxattempts = "maxAttempts"
+        case assignednodeid = "assignedNodeId"
+        case attempts
+        case result
+        case cancelrequested = "cancelRequested"
     }
 }
 

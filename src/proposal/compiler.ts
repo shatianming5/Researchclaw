@@ -17,7 +17,7 @@ import { extractEntities } from "./extract.js";
 import { writeJsonFile, writeTextFile, copyFile } from "./files.js";
 import { resolveProposalLlmClient } from "./llm.js";
 import { buildSkeletonPlan } from "./plan.js";
-import { renderNeedsConfirmMd, renderRunbookMd } from "./render.js";
+import { renderNeedsConfirmMd, renderPlanRunbookMd, renderRunbookMd } from "./render.js";
 import { buildDefaultRetrySpec } from "./retry.js";
 import { CompileReportSchema, DiscoveryModeSchema } from "./schema.js";
 import { createPlanLayout, generatePlanId } from "./workdir.js";
@@ -70,13 +70,16 @@ function buildNeedsConfirm(params: {
 
   for (const ds of params.discovery.datasets) {
     if (ds.platform === "kaggle") {
-      items.push({
-        id: `dataset:kaggle:${ds.resolvedId ?? ds.input.name ?? "unknown"}`,
-        area: "dataset",
-        message: "Kaggle dataset requires credentials and manual download/config.",
-        suggested: ds.resolvedUrl,
-        evidence: ds.evidence ?? [],
-      });
+      if (ds.exists !== true) {
+        items.push({
+          id: `dataset:kaggle:${ds.resolvedId ?? ds.input.name ?? "unknown"}`,
+          area: "dataset",
+          message:
+            "Kaggle dataset may require credentials; configure KAGGLE_USERNAME/KAGGLE_KEY or proposal secrets before sampling.",
+          suggested: ds.resolvedUrl,
+          evidence: ds.evidence ?? [],
+        });
+      }
       continue;
     }
     if (ds.exists === false) {
@@ -246,6 +249,10 @@ export async function compileProposal(
   await writeJsonFile(path.join(layout.planDir, "plan.dag.json"), dag);
   await writeJsonFile(path.join(layout.planDir, "acceptance.json"), acceptanceRes.spec);
   await writeJsonFile(path.join(layout.planDir, "retry.json"), retry);
+  await writeTextFile(
+    path.join(layout.planDir, "runbook.md"),
+    renderPlanRunbookMd({ layout, report, dag }),
+  );
   if (acceptanceRes.raw) {
     await writeTextFile(path.join(layout.planDir, "acceptance.raw.txt"), acceptanceRes.raw);
   }
@@ -269,6 +276,7 @@ export async function compileProposal(
     dag: path.join(layout.planDir, "plan.dag.json"),
     acceptance: path.join(layout.planDir, "acceptance.json"),
     retry: path.join(layout.planDir, "retry.json"),
+    planRunbook: path.join(layout.planDir, "runbook.md"),
     compileReport: path.join(layout.reportDir, "compile_report.json"),
     needsConfirm: path.join(layout.reportDir, "needs_confirm.md"),
     runbook: path.join(layout.reportDir, "runbook.md"),

@@ -3,6 +3,7 @@ import path from "node:path";
 import type { PlanNode } from "../schema.js";
 import type { HostCommandRunner } from "./git.js";
 import type { RepoExecutedNode, RepoRef, RepoWorktreeRecord } from "./types.js";
+import { applyPatch } from "../../agents/apply-patch.js";
 import { SAFE_NODE_TYPES } from "../execute/types.js";
 import {
   gitHeadSha,
@@ -132,6 +133,7 @@ export class RepoWorkflowManager {
       branchName,
       baseSha,
     });
+    await this.applyBootstrapPatchIfAny({ repoKey, worktreeAbs });
 
     const record: RepoWorktreeRecord = {
       createdAt: new Date().toISOString(),
@@ -145,6 +147,54 @@ export class RepoWorkflowManager {
     };
     this.worktrees.set(repoKey, record);
     return record;
+  }
+
+  private async applyBootstrapPatchIfAny(params: {
+    repoKey: string;
+    worktreeAbs: string;
+  }): Promise<void> {
+    const patchPath = path.join(
+      this.planDir,
+      "report",
+      "bootstrap",
+      "worktree_patches",
+      `${params.repoKey}.patch`,
+    );
+    let patchText: string;
+    try {
+      patchText = await fs.readFile(patchPath, "utf-8");
+    } catch {
+      return;
+    }
+
+    const applied = await applyPatch(patchText, {
+      cwd: params.worktreeAbs,
+      sandboxRoot: params.worktreeAbs,
+    });
+
+    const appliedPath = path.join(
+      this.planDir,
+      "report",
+      "bootstrap",
+      "worktree_patches",
+      `${params.repoKey}.applied.json`,
+    );
+    await fs.mkdir(path.dirname(appliedPath), { recursive: true });
+    await fs.writeFile(
+      appliedPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          repoKey: params.repoKey,
+          appliedAt: new Date().toISOString(),
+          worktreeRel: path.relative(this.planDir, params.worktreeAbs).replaceAll("\\", "/"),
+          summary: applied.summary,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf-8",
+    );
   }
 
   async resetWorktree(params: {

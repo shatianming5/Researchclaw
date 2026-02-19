@@ -25,6 +25,7 @@ import { writeRepoWorkflowEvidence } from "./repo-workflow/evidence.js";
 import { RepoWorkflowManager, shouldUseRepoWorktreeForNode } from "./repo-workflow/manager.js";
 import { runProposalPlanSafeNodes } from "./run.js";
 import { RetrySpecSchema, type PlanNode } from "./schema.js";
+import { resolveExecutionSecretsEnv } from "./secrets.js";
 import { validatePlanDir } from "./validate.js";
 
 export type {
@@ -46,6 +47,25 @@ async function readContextAgentId(planDir: string): Promise<string | null> {
 
 function resolveNodeById(dag: { nodes: PlanNode[] }, nodeId: string): PlanNode | null {
   return dag.nodes.find((n) => n.id === nodeId) ?? null;
+}
+
+function mergeMissingEnv(
+  base: Record<string, string> | undefined,
+  extra: Record<string, string>,
+): Record<string, string> | undefined {
+  if (Object.keys(extra).length === 0) {
+    return base;
+  }
+  const merged: Record<string, string> = {};
+  if (base) {
+    Object.assign(merged, base);
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (!(key in merged)) {
+      merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function mapSafeNodeResult(params: {
@@ -112,6 +132,7 @@ export async function executeProposalPlan(params: {
       | "repairAttempts"
       | "gatewayTimeoutMs"
       | "invokeTimeoutMs"
+      | "gpuWaitTimeoutMs"
       | "nodeApprove"
     >
   > & {
@@ -141,6 +162,7 @@ export async function executeProposalPlan(params: {
     node: params.opts?.node,
     nodeApprove: params.opts?.nodeApprove ?? "off",
     invokeTimeoutMs: Math.max(5_000, Math.floor(params.opts?.invokeTimeoutMs ?? 20 * 60_000)),
+    gpuWaitTimeoutMs: Math.max(0, Math.floor(params.opts?.gpuWaitTimeoutMs ?? 0)),
   };
 
   const validation = await validatePlanDir(planDir);
@@ -197,6 +219,15 @@ export async function executeProposalPlan(params: {
 
   const retryRaw = await fs.readFile(path.join(planDir, "plan", "retry.json"), "utf-8");
   const retrySpec = RetrySpecSchema.parse(JSON.parse(retryRaw) as unknown);
+
+  const secretsEnv = await (async () => {
+    try {
+      return await resolveExecutionSecretsEnv();
+    } catch (err) {
+      warnings.push(`Failed to load secrets env: ${String(err)}`);
+      return {};
+    }
+  })();
 
   const agentId =
     opts.agentId?.trim() ||
@@ -353,13 +384,18 @@ export async function executeProposalPlan(params: {
 
       const maybeRepair = repoRef && hostWorkdirOverride && repairHook ? repairHook : undefined;
 
-      nodeResult = isGpuNode(node)
+      const nodeWithSecrets: PlanNode =
+        Object.keys(secretsEnv).length === 0
+          ? node
+          : { ...node, env: mergeMissingEnv(node.env, secretsEnv) };
+
+      nodeResult = isGpuNode(nodeWithSecrets)
         ? await (async () => {
             const nodeKey = (opts.node ?? "").trim();
             if (!nodeKey) {
               return await runGpuNodeViaScheduler({
                 planDir,
-                node,
+                node: nodeWithSecrets,
                 dryRun: opts.dryRun,
                 commandTimeoutMs: opts.commandTimeoutMs,
                 maxAttempts: opts.maxAttempts,
@@ -370,6 +406,7 @@ export async function executeProposalPlan(params: {
                 gatewayToken: opts.gatewayToken,
                 gatewayTimeoutMs: opts.gatewayTimeoutMs,
                 invokeTimeoutMs: opts.invokeTimeoutMs,
+                gpuWaitTimeoutMs: opts.gpuWaitTimeoutMs,
                 nodeApprove: opts.nodeApprove,
                 callGateway: callGatewayImpl,
                 maybeRepair,
@@ -377,7 +414,7 @@ export async function executeProposalPlan(params: {
             }
             return await runGpuNodeViaGateway({
               planDir,
-              node,
+              node: nodeWithSecrets,
               nodeId: nodeKey,
               dryRun: opts.dryRun,
               commandTimeoutMs: opts.commandTimeoutMs,
@@ -389,6 +426,7 @@ export async function executeProposalPlan(params: {
               gatewayToken: opts.gatewayToken,
               gatewayTimeoutMs: opts.gatewayTimeoutMs,
               invokeTimeoutMs: opts.invokeTimeoutMs,
+              gpuWaitTimeoutMs: opts.gpuWaitTimeoutMs,
               nodeApprove: opts.nodeApprove,
               callGateway: callGatewayImpl,
               maybeRepair,
@@ -396,7 +434,7 @@ export async function executeProposalPlan(params: {
           })()
         : await runCpuShellNode({
             planDir,
-            node,
+            node: nodeWithSecrets,
             dryRun: opts.dryRun,
             commandTimeoutMs: opts.commandTimeoutMs,
             maxAttempts: opts.maxAttempts,

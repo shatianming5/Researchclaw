@@ -211,6 +211,37 @@ export type GatewayNodesConfig = {
   denyCommands?: string[];
 };
 
+export type GatewayGpuSchedulerPolicyWindowConfig = {
+  /**
+   * Days of week for this window (e.g. ["mon","tue"]).
+   * When omitted or empty, applies to all days.
+   */
+  days?: string[];
+  /** Start time (HH:MM, 24h). */
+  start?: string;
+  /** End time (HH:MM, 24h). If end < start, the window wraps past midnight. */
+  end?: string;
+  /** Optional IANA timezone (e.g. "America/Los_Angeles"). */
+  tz?: string;
+};
+
+export type GatewayGpuSchedulerPolicyConfig = {
+  /** Enable scheduler policy loop. Default: false. */
+  enabled?: boolean;
+  /** Policy evaluation interval (ms). Default: 30000. */
+  intervalMs?: number;
+  /** Auto-pause running jobs outside the window(s). Default: true when enabled. */
+  autoPause?: boolean;
+  /** Auto-resume jobs paused by policy inside the window(s). Default: true when enabled. */
+  autoResume?: boolean;
+  /** Allowed execution windows. When omitted, policy loop is a no-op. */
+  windows?: GatewayGpuSchedulerPolicyWindowConfig[];
+};
+
+export type GatewayGpuSchedulerConfig = {
+  policy?: GatewayGpuSchedulerPolicyConfig;
+};
+
 export type GatewayConfig = {
   /** Single multiplexed port for Gateway WS + HTTP (default: 18789). */
   port?: number;
@@ -239,6 +270,7 @@ export type GatewayConfig = {
   tls?: GatewayTlsConfig;
   http?: GatewayHttpConfig;
   nodes?: GatewayNodesConfig;
+  gpuScheduler?: GatewayGpuSchedulerConfig;
   /**
    * IPs of trusted reverse proxies (e.g. Traefik, nginx). When a connection
    * arrives from one of these IPs, the Gateway trusts `x-forwarded-for` (or
