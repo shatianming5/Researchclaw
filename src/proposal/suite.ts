@@ -76,7 +76,8 @@ async function mapWithConcurrency<T, R>(
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
-  const out = new Array<R>(items.length);
+  const out: R[] = [];
+  out.length = items.length;
   const concurrency = Math.max(1, Math.floor(limit));
   let next = 0;
 
@@ -87,7 +88,7 @@ async function mapWithConcurrency<T, R>(
       if (idx >= items.length) {
         return;
       }
-      out[idx] = await fn(items[idx] as T, idx);
+      out[idx] = await fn(items[idx], idx);
     }
   });
 

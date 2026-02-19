@@ -692,7 +692,7 @@ export async function refineProposalPlan(params: {
   {
     const train = dagForPrompt.nodes.find((n) => n.id === "train.run");
     const commands = (train?.commands ?? []).filter(Boolean);
-    if (train && commands.length > 0 && commands.some(isTrainWrapperCommand)) {
+    if (train && commands.some(isTrainWrapperCommand)) {
       const innerPath = path.join(planDir, "plan", "scripts", "train.run.inner.sh");
       try {
         const innerRaw = await fs.readFile(innerPath, "utf-8");
@@ -1075,7 +1075,7 @@ export async function refineProposalPlan(params: {
 
     if (train && train.tool === "shell") {
       const current = (train.commands ?? []).map((c) => c.trim()).filter(Boolean);
-      const looksWrapped = current.length > 0 && current.some(isTrainWrapperCommand);
+      const looksWrapped = current.some(isTrainWrapperCommand);
       if (looksWrapped) {
         if (previousTrainInnerCommands && previousTrainInnerCommands.length > 0) {
           trainInnerCommands = previousTrainInnerCommands;

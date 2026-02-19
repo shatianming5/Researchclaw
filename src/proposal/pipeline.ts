@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import type { AcceptanceReport } from "./results/schema.js";
@@ -26,6 +27,30 @@ import {
 import { acceptProposalResults } from "./results/index.js";
 import { runProposalPlanSafeNodes, type ProposalRunOpts, type ProposalRunResult } from "./run.js";
 import { validatePlanDir } from "./validate.js";
+
+async function ensureDryRunCheckpointManifest(planDir: string) {
+  const manifestPath = path.join(planDir, "report", "checkpoint_manifest.json");
+  try {
+    await fs.stat(manifestPath);
+    return;
+  } catch {
+    // ignore; write below
+  }
+
+  await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+  const payload = {
+    schemaVersion: 1,
+    createdAt: new Date().toISOString(),
+    repoKey: null as string | null,
+    checkpointDir: "",
+    checkpointFound: false,
+    latestHint: null as string | null,
+    reason: "dry_run",
+    exitCode: 0,
+    notes: ["Generated during dry-run execute; train.run did not execute."],
+  };
+  await fs.writeFile(manifestPath, `${JSON.stringify(payload, null, 2)}\n`, "utf-8");
+}
 
 export type ExperimentPipelineAction = "plan" | "execute" | "pipeline";
 
@@ -206,19 +231,23 @@ export async function runExperimentPipeline(params: {
   }
 
   // Final pre-exec validation: require checkpoint/resume contract (pause/resume relies on it).
-  validate = await validatePlanDir(planDir, { strictResume: true });
-  if (!validate.ok || !validate.data) {
-    return {
-      ok: false,
-      action: params.action,
-      planDir,
-      planId,
-      compile,
-      validate,
-      safe,
-      ...(refine ? { refine } : {}),
-      ...(bootstrap ? { bootstrap } : {}),
-    };
+  // Skip strict resume checks for dry-run executes so the pipeline can be smoke-tested without
+  // requiring refine-generated wrapper scripts.
+  if (!stages.execute?.dryRun) {
+    validate = await validatePlanDir(planDir, { strictResume: true });
+    if (!validate.ok || !validate.data) {
+      return {
+        ok: false,
+        action: params.action,
+        planDir,
+        planId,
+        compile,
+        validate,
+        safe,
+        ...(refine ? { refine } : {}),
+        ...(bootstrap ? { bootstrap } : {}),
+      };
+    }
   }
 
   const execute = await executeProposalPlan({
@@ -256,6 +285,10 @@ export async function runExperimentPipeline(params: {
       execute,
       finalize,
     };
+  }
+
+  if (stages.execute?.dryRun) {
+    await ensureDryRunCheckpointManifest(planDir);
   }
 
   const accept = await acceptProposalResults({

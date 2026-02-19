@@ -118,7 +118,12 @@ describe("proposal/refine adapters", () => {
     expect(evalNode?.tool).toBe("shell");
     expect(setup?.commands?.length).toBeGreaterThan(0);
     expect(install?.commands?.length).toBeGreaterThan(0);
-    expect(train?.commands?.join("\n")).toContain("tools/train.py");
+    expect(train?.commands?.join("\n")).toContain("train.run.sh");
+    const trainInner = await fs.readFile(
+      path.join(planDir, "plan", "scripts", "train.run.inner.sh"),
+      "utf-8",
+    );
+    expect(trainInner).toContain("tools/train.py");
     expect(evalNode?.commands?.join("\n")).toContain("tools/test.py");
 
     expect(train?.env?.OPENCLAW_PLAN_DIR).toBeDefined();
