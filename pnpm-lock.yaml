@@ -568,6 +568,12 @@ importers:
         specifier: workspace:*
         version: link:../..
 
+  packages/openclaw-orchestrator:
+    dependencies:
+      openclaw:
+        specifier: workspace:*
+        version: link:../..
+
   ui:
     dependencies:
       '@noble/ed25519':

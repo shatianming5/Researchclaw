@@ -6,7 +6,6 @@ import { resolveUserPath } from "../utils.js";
 import { normalizeServePath } from "./gmail.js";
 
 let cachedPythonPath: string | undefined;
-let cachedPythonPathKey: string | undefined;
 let cachedPythonPathMissKey: string | undefined;
 const MAX_OUTPUT_CHARS = 800;
 
@@ -132,10 +131,13 @@ function ensureGcloudOnPath(): boolean {
 }
 
 export async function resolvePythonExecutablePath(): Promise<string | undefined> {
-  const currentKey = process.env.PATH ?? "";
-  if (cachedPythonPath && cachedPythonPathKey === currentKey) {
-    return cachedPythonPath;
+  if (cachedPythonPath) {
+    if (isExecutable(cachedPythonPath)) {
+      return cachedPythonPath;
+    }
+    cachedPythonPath = undefined;
   }
+  const currentKey = process.env.PATH ?? "";
   if (cachedPythonPathMissKey === currentKey) {
     return cachedPythonPath;
   }
@@ -161,7 +163,6 @@ export async function resolvePythonExecutablePath(): Promise<string | undefined>
       continue;
     }
     cachedPythonPath = resolved;
-    cachedPythonPathKey = currentKey;
     cachedPythonPathMissKey = undefined;
     return resolved;
   }
